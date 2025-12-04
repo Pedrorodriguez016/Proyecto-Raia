@@ -1,14 +1,7 @@
+"""Script de gestión de datos de crímenes en LA - BALANCED EDITION.
 
-
-"""Script de gestión de datos de crímenes en Los Ángeles + Modelado Básico.
-
-Etapas:
-1. Collect  -> Carga del CSV.
-2. Explore  -> Batería completa de gráficos.
-3. Clean    -> Limpieza y normalización.
-4. Prepare  -> Selección de variables.
-5. Split    -> Train/Test.
-6. Train    -> Modelo Básico (Decision Tree).
+1. Explore  -> Gráficas ORIGINALES intactas.
+2. Model    -> Red Neuronal TensorFlow (Top 10 Crímenes).
 """
 
 from pathlib import Path
@@ -17,10 +10,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 import os
+
+# --- TENSORFLOW ---
+import tensorflow as tf
+from tensorflow.keras import layers, models, callbacks
 
 DATA_PATH = Path("Crime_Data_from_2020_to_Present.csv")
 
@@ -38,10 +33,9 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty: return df
     print("[Clean] Limpiando datos y normalizando coordenadas...")
     
-    # Eliminamos columnas técnicas irrelevantes
     columnas_a_eliminar = [
-        "Date Rptd", "AREA", "Part 1-2", "Crm Cd", "Mocodes", "Premis Cd", 
-        "Weapon Used Cd", "Crm Cd 1", "Crm Cd 2", "Crm Cd 3", "Crm Cd 4", 
+        "Date Rptd", "AREA", "Part 1-2", "Crm Cd", "Mocodes", 
+        "Crm Cd 1", "Crm Cd 2", "Crm Cd 3", "Crm Cd 4", 
         "Cross Street", "Status", "Status Desc"
     ]
     df = df.drop(columns=[c for c in columnas_a_eliminar if c in df.columns])
@@ -53,8 +47,15 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
         df["YEAR"] = df["DATE OCC"].dt.year
         df["MONTH"] = df["DATE OCC"].dt.to_period("M").astype(str)
         df["MONTH_NUM"] = df["DATE OCC"].dt.month
+        df["DAY_OF_WEEK"] = df["DATE OCC"].dt.dayofweek
 
-    # Coordenadas (LAT/LON)
+    # Limpieza de nulos para variables clave de la IA
+    cols_clave_ia = ["Premis Cd", "Weapon Used Cd"]
+    for col in cols_clave_ia:
+        if col in df.columns:
+            df[col] = df[col].fillna(0)
+
+    # Coordenadas
     if "LAT" in df.columns and "LON" in df.columns:
         df["LAT"] = pd.to_numeric(df["LAT"], errors="coerce")
         df["LON"] = pd.to_numeric(df["LON"], errors="coerce")
@@ -76,7 +77,9 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
 def explore_data(df: pd.DataFrame, output_dir: Path | None = None, show_graphs: bool = True) -> None:
     if df.empty: return
-    print("[Explore] Generando batería completa de gráficos...")
+    print("[Explore] Generando batería completa de gráficos (ORIGINALES)...")
+    
+    if output_dir: output_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Top 15 Tipos de Crimen
     if "Crm Cd Desc" in df.columns:
@@ -87,7 +90,7 @@ def explore_data(df: pd.DataFrame, output_dir: Path | None = None, show_graphs: 
         plt.tight_layout()
         _save_or_show(output_dir, "01_top_crimes.png", show_graphs)
 
-    # 2. Evolución mensual (Línea temporal)
+    # 2. Evolución mensual
     if "MONTH" in df.columns:
         monthly = df.groupby("MONTH").size().sort_index()
         plt.figure(figsize=(12, 5))
@@ -107,7 +110,7 @@ def explore_data(df: pd.DataFrame, output_dir: Path | None = None, show_graphs: 
         plt.tight_layout()
         _save_or_show(output_dir, "03_heatmap_year_month.png", show_graphs)
 
-    # 4. Top Áreas (Comisarías)
+    # 4. Top Áreas
     if "AREA NAME" in df.columns:
         area_counts = df["AREA NAME"].value_counts().head(20)
         plt.figure(figsize=(10, 8))
@@ -127,7 +130,7 @@ def explore_data(df: pd.DataFrame, output_dir: Path | None = None, show_graphs: 
 
     # 6. Distribución Edad Víctima
     if "Vict Age" in df.columns:
-        edades = df["Vict Age"][df["Vict Age"] > 0] # Filtramos 0s
+        edades = df["Vict Age"][df["Vict Age"] > 0]
         plt.figure(figsize=(10, 4))
         sns.histplot(edades, bins=40, kde=True, color="#2ca02c")
         plt.title("Distribución de Edad de Víctimas")
@@ -151,7 +154,7 @@ def explore_data(df: pd.DataFrame, output_dir: Path | None = None, show_graphs: 
         plt.tight_layout()
         _save_or_show(output_dir, "08_top_weapons.png", show_graphs)
 
-    # 9. HEATMAP: ZONA vs SEXO (Información útil)
+    # 9. HEATMAP: ZONA vs SEXO
     if "AREA NAME" in df.columns and "Vict Sex" in df.columns:
         df_sex = df[df["Vict Sex"].isin(["M", "F"])].copy()
         top_areas_list = df_sex["AREA NAME"].value_counts().head(15).index
@@ -160,7 +163,7 @@ def explore_data(df: pd.DataFrame, output_dir: Path | None = None, show_graphs: 
         ct = pd.crosstab(df_filtered["AREA NAME"], df_filtered["Vict Sex"])
         plt.figure(figsize=(10, 8))
         sns.heatmap(ct, annot=True, fmt="d", cmap="Reds", linewidths=.5)
-        plt.title("MAPA DE CALOR: Zonas Peligrosas vs Sexo (Quién y Dónde)")
+        plt.title("MAPA DE CALOR: Zonas Peligrosas vs Sexo")
         plt.tight_layout()
         _save_or_show(output_dir, "09_heatmap_zona_sexo.png", show_graphs)
 
@@ -175,50 +178,87 @@ def explore_data(df: pd.DataFrame, output_dir: Path | None = None, show_graphs: 
         _save_or_show(output_dir, "10_class_imbalance.png", show_graphs)
 
 def prepare_data(df: pd.DataFrame):
-    print("[Prepare] Seleccionando variables...")
-    target_col = "Crm Cd Desc" if "Crm Cd Desc" in df.columns else None
-    feature_cols = [c for c in ["YEAR", "LAT", "LON", "TIME OCC", "Vict Age", "MONTH_NUM"] if c in df.columns]
+    print("[Prepare] Seleccionando variables para IA (Estrategia Top 10)...")
+    target_col = "Crm Cd Desc"
     
-    if not feature_cols or target_col is None:
-        return None, None, None
-        
+    feature_cols = [
+        "YEAR", "LAT", "LON", "TIME OCC", "Vict Age", "MONTH_NUM", 
+        "Premis Cd", "Weapon Used Cd", "DAY_OF_WEEK"
+    ]
+    feature_cols = [c for c in feature_cols if c in df.columns]
+    
     work_df = df[feature_cols + [target_col]].dropna()
     
-    # Filtro Top 10 para modelo básico
+    # --- ESTRATEGIA TOP 10 ---
+    # Aquí es donde cambiamos el número para buscar el equilibrio
     top_classes = work_df[target_col].value_counts().head(10).index
     work_df = work_df[work_df[target_col].isin(top_classes)]
-    print(f"[Prepare] Filtrado Top 10 clases. Filas listas: {len(work_df):,}")
     
+    print(f"[Prepare] Clases a predecir: {list(top_classes)}")
+    
+    # 1. Label Encoding
     le_target = LabelEncoder()
-    # Usamos .values para asegurar que sea un array numpy limpio y evitar errores de índice
     y = le_target.fit_transform(work_df[target_col])
-    X = work_df[feature_cols]
     
-    return X, y, le_target
+    # 2. Scaling
+    scaler = StandardScaler()
+    X = scaler.fit_transform(work_df[feature_cols])
+    
+    return X, y, le_target, scaler
 
 def split_data(X, y):
     if X is None: return None
-    print("[Split] Creando Train/Test (80/20)...")
-    # Devuelve: X_train, X_test, y_train, y_test
+    print("[Split] Train/Test (80/20)...")
     return train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-# CORRECCIÓN AQUÍ: El orden de los argumentos ahora coincide con lo que devuelve split_data
-def train_basic_model(X_train, X_test, y_train, y_test):
-    print("\n--- INICIO ETAPA: TRAIN MODELS (BASIC) ---")
-    print("[Train] Entrenando Árbol de Decisión...")
+def train_neural_model(X_train, X_test, y_train, y_test, num_classes):
+    print("\n--- INICIO ETAPA: RED NEURONAL (TensorFlow) ---")
     
-    clf = DecisionTreeClassifier(max_depth=10, random_state=42)
-    clf.fit(X_train, y_train)
+    model = models.Sequential([
+        # Capa 1
+        layers.Dense(256, activation='relu', input_shape=(X_train.shape[1],)),
+        layers.BatchNormalization(),
+        layers.Dropout(0.3),
+        
+        # Capa 2
+        layers.Dense(128, activation='relu'),
+        layers.BatchNormalization(),
+        layers.Dropout(0.3),
+        
+        # Capa 3
+        layers.Dense(64, activation='relu'),
+        
+        # Salida
+        layers.Dense(num_classes, activation='softmax')
+    ])
     
-    y_pred = clf.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-    print(f"[Results] PRECISIÓN (Accuracy): {acc:.2%}")
-    print("(Modelo basado en: Ubicación + Hora + Edad)")
-    return clf
-
-def save_clean_dataset(df: pd.DataFrame, output_dir: Path):
-    output_dir.mkdir(parents=True, exist_ok=True)
-    df.to_csv(output_dir / "crimes_clean.csv", index=False)
+    model.compile(optimizer='adam',
+                  loss='sparse_categorical_crossentropy',
+                  metrics=['accuracy'])
+    
+    # Callbacks
+    early_stop = callbacks.EarlyStopping(
+        monitor='val_loss', 
+        patience=8, 
+        restore_best_weights=True,
+        verbose=1
+    )
+    
+    print("[Train] Entrenando modelo...")
+    history = model.fit(
+        X_train, y_train,
+        epochs=40,
+        batch_size=64,
+        validation_split=0.2,
+        callbacks=[early_stop],
+        verbose=1
+    )
+    
+    print("\n[Evaluate] Evaluando modelo...")
+    loss, acc = model.evaluate(X_test, y_test, verbose=0)
+    print(f"[Results] PRECISIÓN FINAL (Accuracy) en Test: {acc:.2%}")
+    
+    return model
 
 def _save_or_show(output_dir, filename, show):
     if output_dir:
@@ -227,37 +267,25 @@ def _save_or_show(output_dir, filename, show):
     if show: plt.show()
     else: plt.close()
 
-def parse_args():
+def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--data", type=Path, default=DATA_PATH)
-    p.add_argument("--output-dir", type=Path, default=Path("output"))
     p.add_argument("--no-graphs", action="store_true")
     p.add_argument("--sample", type=int, default=None)
-    return p.parse_args()
-
-def main():
-    args = parse_args()
-    if not args.data.exists(): 
-        print("ERROR: Archivo no encontrado.")
-        return
+    args = p.parse_args()
     
-    df = collect_data(args.data)
+    df = collect_data(DATA_PATH)
     if args.sample: df = df.sample(min(args.sample, len(df)), random_state=42)
     
     df = clean_data(df)
-    save_clean_dataset(df, args.output_dir)
     
-    explore_data(df, args.output_dir / "figures", show_graphs=not args.no_graphs)
+    # Generamos gráficas a menos que se indique lo contrario
+    explore_data(df, Path("output/figures"), show_graphs=not args.no_graphs)
     
-    X, y, le = prepare_data(df)
-    splits = split_data(X, y)
-    
-    if splits:
-        # splits contiene (X_train, X_test, y_train, y_test)
-        # La función ahora los recibe en ese orden correcto.
-        train_basic_model(*splits)
-    
-    print("\n[Done] Pipeline completo finalizado.")
+    X, y, le, scaler = prepare_data(df)
+    if X is not None:
+        splits = split_data(X, y)
+        if splits:
+            train_neural_model(*splits, num_classes=len(le.classes_))
 
 if __name__ == "__main__":
     main()
