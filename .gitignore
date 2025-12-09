@@ -1,1 +1,7 @@
 output/
+users_db.json
+crime_model.keras
+feature_cols.joblib
+label_encoder.joblib
+prediction_history.json
+scaler.joblib
