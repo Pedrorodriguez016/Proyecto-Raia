@@ -86,34 +86,27 @@ def prepare_data(df: pd.DataFrame):
     target_col = "Crm Cd Desc"
     
     # 1. Definir columnas
+    # 1. Definir columnas
     feature_cols = [
-        "YEAR", "LAT", "LON", "TIME OCC", "Vict Age", "MONTH_NUM", 
+        "YEAR", "LAT", "LON", "TIME OCC", "Vict Age", "Vict Sex", "MONTH_NUM", 
         "Premis Cd", "Weapon Used Cd", "DAY_OF_WEEK"
     ]
     feature_cols = [c for c in feature_cols if c in df.columns]
-    
+
+    # Creamos work_df ANTES de intentar acceder a él
     work_df = df[feature_cols + [target_col]].dropna()
+    
+    # Sex Encoding manual (F=0, M=1, X=2, Otro=2)
+    if "Vict Sex" in work_df.columns:
+        work_df["Vict Sex"] = work_df["Vict Sex"].map({'F': 0, 'M': 1, 'X': 2}).fillna(2).astype(int)
     
     # 2. FILTRAR SOLO EL TOP 10
     top_classes = work_df[target_col].value_counts().head(10).index
     work_df = work_df[work_df[target_col].isin(top_classes)]
     
-    # --- 🔥 NUEVO: BALANCEO DE CLASES (UNDERSAMPLING) ---
-    print("[Prepare] Balanceando clases (Undersampling)...")
+    # --- 🔥 NUEVO: BALANCEO CON CLASS WEIGHTS (Mejor que Undersampling agresivo) ---
+    print("[Prepare] Usando todo el dataset (Top 10) y calculando pesos de clase...")
     
-    # Encontramos cuál es la clase con MENOS datos dentro del Top 10
-    min_class_count = work_df[target_col].value_counts().min()
-    print(f"   -> Reduciendo todas las clases a {min_class_count} ejemplos cada una.")
-    
-    # Cogemos aleatoriamente esa cantidad de cada clase
-    balanced_df = pd.DataFrame()
-    for crime_type in top_classes:
-        df_class = work_df[work_df[target_col] == crime_type]
-        # Muestreamos solo 'min_class_count' ejemplos
-        df_class_sampled = df_class.sample(min_class_count, random_state=42)
-        balanced_df = pd.concat([balanced_df, df_class_sampled])
-    
-    work_df = balanced_df # Ahora usamos el dataset equilibrado
     # ----------------------------------------------------
 
     print(f"[Prepare] Clases a predecir: {list(top_classes)}")
@@ -136,8 +129,26 @@ def split_data(X, y):
 def train_neural_model(X_train, X_test, y_train, y_test, num_classes):
     print("\n--- ENTRENANDO RED NEURONAL ---")
     
+    # Calcular pesos de clase para balancear el entreno
+    from sklearn.utils import class_weight
+    import numpy as np
+    
+    class_weights = class_weight.compute_class_weight(
+        class_weight='balanced',
+        classes=np.unique(y_train),
+        y=y_train
+    )
+    class_weights_dict = dict(enumerate(class_weights))
+    print(f"[Training] Pesos de clase calculados: {class_weights_dict}")
+
     model = models.Sequential([
-        layers.Dense(256, activation='relu', input_shape=(X_train.shape[1],)),
+        layers.Input(shape=(X_train.shape[1],)),
+        
+        layers.Dense(512, activation='relu'),
+        layers.BatchNormalization(),
+        layers.Dropout(0.3),
+
+        layers.Dense(256, activation='relu'),
         layers.BatchNormalization(),
         layers.Dropout(0.3),
 
@@ -145,26 +156,30 @@ def train_neural_model(X_train, X_test, y_train, y_test, num_classes):
         layers.BatchNormalization(),
         layers.Dropout(0.3),
 
-        layers.Dense(64, activation='relu'),
         layers.Dense(num_classes, activation='softmax')
     ])
     
-    model.compile(optimizer='adam',
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
                   loss='sparse_categorical_crossentropy',
                   metrics=['accuracy'])
 
     early_stop = callbacks.EarlyStopping(
         monitor='val_loss',
-        patience=8,
+        patience=10,
         restore_best_weights=True,
         verbose=1
+    )
+    
+    reduce_lr = callbacks.ReduceLROnPlateau(
+        monitor='val_loss', factor=0.5, patience=5, verbose=1
     )
 
     history = model.fit(
         X_train, y_train,
-        epochs=40, batch_size=64,
+        epochs=50, batch_size=64,
         validation_split=0.2,
-        callbacks=[early_stop],
+        callbacks=[early_stop, reduce_lr],
+        class_weight=class_weights_dict,
         verbose=1
     )
 

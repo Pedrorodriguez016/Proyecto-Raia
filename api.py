@@ -8,7 +8,6 @@ import numpy as np
 import os
 import re
 import random
-import auth_manager
 
 # -------------------- CONFIG --------------------
 app = FastAPI(title="RAIA API - Full Service", version="3.0")
@@ -20,7 +19,7 @@ unique_areas = []
 
 @app.on_event("startup")
 def startup_event():
-    auth_manager.init_db()
+    init_db()  # Función local ahora
     load_ml_models()
     load_data_for_chatbot()
 
@@ -119,10 +118,46 @@ def process_chat_logic(prompt: str):
     # Respuesta genérica
     return "Sóc el cervell de l'API. Pregunta'm sobre 'tendències', 'comparacions entre zones' o 'intervals horaris'."
 
-# -------------------- SEGURIDAD --------------------
+# -------------------- GESTIÓN DE USUARIOS (INTEGRADA) --------------------
+import json
+import hashlib
+
+DB_FILE = "users_db.json"
+
+def _load_users():
+    if not os.path.exists(DB_FILE): return {}
+    try:
+        with open(DB_FILE, "r") as f: return json.load(f)
+    except json.JSONDecodeError: return {}
+
+def _save_users(users_dict):
+    with open(DB_FILE, "w") as f: json.dump(users_dict, f, indent=4)
+
+def init_db():
+    if not os.path.exists(DB_FILE):
+        # Usuario admin por defecto: admin / 1234
+        users = {"admin": hashlib.sha256(b"1234").hexdigest()}
+        _save_users(users)
+
+def check_credentials_logic(username, password):
+    users = _load_users()
+    if username in users:
+        hashed_pw = hashlib.sha256(password.encode()).hexdigest()
+        if users[username] == hashed_pw:
+            return True
+    return False
+
+def add_user_logic(username, password):
+    users = _load_users()
+    if username in users: return False
+    users[username] = hashlib.sha256(password.encode()).hexdigest()
+    _save_users(users)
+    return True
+
+# -------------------- SEGURIDAD (FASTAPI) --------------------
 security = HTTPBasic()
 def authenticate(credentials: HTTPBasicCredentials = Depends(security)):
-    if not auth_manager.check_credentials(credentials.username, credentials.password):
+    if not check_credentials_logic(credentials.username, credentials.password):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
     return credentials.username
 
@@ -137,7 +172,7 @@ def check_login(username: str = Depends(authenticate)):
 
 @app.post("/register")
 def register(user_data: UserData):
-    if auth_manager.add_user(user_data.username, user_data.password):
+    if add_user_logic(user_data.username, user_data.password):
         return {"status": "success"}
     raise HTTPException(status_code=400, detail="Usuario ya existe")
 
@@ -159,15 +194,21 @@ class CrimeInput(BaseModel):
     day_of_week: int
     hour: int
     victim_age: int
+    victim_sex: str  # 'F', 'M', 'X'
 
 @app.post("/predict")
 def predict_crime(data: CrimeInput, username: str = Depends(authenticate)):
     if 'model' not in artifacts: raise HTTPException(503, "Modelo no cargado")
     
     try:
+        # Mapping Sex manual como en el training
+        sex_map = {'F': 0, 'M': 1, 'X': 2}
+        sex_val = sex_map.get(data.victim_sex, 2)
+
         input_df = pd.DataFrame([{
             'YEAR': data.date_year, 'LAT': data.lat, 'LON': data.lon,
             'TIME OCC': data.hour * 100, 'Vict Age': data.victim_age,
+            'Vict Sex': sex_val,
             'MONTH_NUM': data.date_month, 'Premis Cd': 0.0, 
             'Weapon Used Cd': 0.0, 'DAY_OF_WEEK': data.day_of_week
         }])

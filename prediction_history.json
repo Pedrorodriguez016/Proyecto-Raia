@@ -1,0 +1,596 @@
+[
+    {
+        "timestamp": "2025-12-15 23:51:36",
+        "user": "admin",
+        "input": {
+            "area": "Van Nuys",
+            "lat": 34.1857,
+            "lon": -118.4574,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 5,
+            "hour": 23,
+            "victim_age": 18,
+            "victim_sex": "M"
+        },
+        "result": {
+            "prediction": "BURGLARY FROM VEHICLE",
+            "confidence": 0.49529725313186646,
+            "top_3": [
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.49529725313186646
+                },
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.46400585770606995
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.036660194396972656
+                }
+            ]
+        },
+        "area": "Van Nuys"
+    },
+    {
+        "timestamp": "2025-12-15 23:51:18",
+        "user": "admin",
+        "input": {
+            "area": "Van Nuys",
+            "lat": 34.1857,
+            "lon": -118.4574,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 23,
+            "victim_age": 54,
+            "victim_sex": "F"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.6455845236778259,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.6455845236778259
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.32462555170059204
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.028681987896561623
+                }
+            ]
+        },
+        "area": "Van Nuys"
+    },
+    {
+        "timestamp": "2025-12-15 23:51:09",
+        "user": "admin",
+        "input": {
+            "area": "Van Nuys",
+            "lat": 34.1857,
+            "lon": -118.4574,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 23,
+            "victim_age": 30,
+            "victim_sex": "F"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.5816208720207214,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.5816208720207214
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.386732816696167
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.03031006082892418
+                }
+            ]
+        },
+        "area": "Van Nuys"
+    },
+    {
+        "timestamp": "2025-12-15 23:51:01",
+        "user": "admin",
+        "input": {
+            "area": "Van Nuys",
+            "lat": 34.1857,
+            "lon": -118.4574,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 23,
+            "victim_age": 30,
+            "victim_sex": "M"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.584282636642456,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.584282636642456
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.3841879963874817
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.030052250251173973
+                }
+            ]
+        },
+        "area": "Van Nuys"
+    },
+    {
+        "timestamp": "2025-12-15 23:50:50",
+        "user": "admin",
+        "input": {
+            "area": "Van Nuys",
+            "lat": 34.1857,
+            "lon": -118.4574,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 12,
+            "victim_age": 30,
+            "victim_sex": "M"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.6039665341377258,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.6039665341377258
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.3496326506137848
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.04143918678164482
+                }
+            ]
+        },
+        "area": "Van Nuys"
+    },
+    {
+        "timestamp": "2025-12-15 23:50:24",
+        "user": "admin",
+        "input": {
+            "area": "Hollywood",
+            "lat": 34.1017,
+            "lon": -118.3136,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 12,
+            "victim_age": 30,
+            "victim_sex": "M"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.5746671557426453,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.5746671557426453
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.3892498314380646
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.02846265770494938
+                }
+            ]
+        },
+        "area": "Hollywood"
+    },
+    {
+        "timestamp": "2025-12-15 23:50:14",
+        "user": "admin",
+        "input": {
+            "area": "Hollywood",
+            "lat": 34.1017,
+            "lon": -118.3136,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 12,
+            "victim_age": 30,
+            "victim_sex": "F"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.5905000567436218,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.5905000567436218
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.37649333477020264
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.02685411088168621
+                }
+            ]
+        },
+        "area": "Hollywood"
+    },
+    {
+        "timestamp": "2025-12-15 23:50:01",
+        "user": "admin",
+        "input": {
+            "area": "77th Street",
+            "lat": 33.9698,
+            "lon": -118.2833,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 12,
+            "victim_age": 30,
+            "victim_sex": "F"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.6248267889022827,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.6248267889022827
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.33901447057724
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.02993966080248356
+                }
+            ]
+        },
+        "area": "77th Street"
+    },
+    {
+        "timestamp": "2025-12-15 23:49:47",
+        "user": "admin",
+        "input": {
+            "area": "77th Street",
+            "lat": 33.9698,
+            "lon": -118.2833,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 12,
+            "victim_age": 30,
+            "victim_sex": "M"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.6139941215515137,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.6139941215515137
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.3511790335178375
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.02721046842634678
+                }
+            ]
+        },
+        "area": "77th Street"
+    },
+    {
+        "timestamp": "2025-12-15 23:14:15",
+        "user": "user",
+        "input": {
+            "area": "Pacific",
+            "lat": 33.9876,
+            "lon": -118.4489,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 19,
+            "victim_age": 49
+        },
+        "result": {
+            "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+            "confidence": 0.4585626721382141,
+            "top_3": [
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.4585626721382141
+                },
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - PETTY ($950 & UNDER)",
+                    "probabilitat": 0.32852402329444885
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.1930168867111206
+                }
+            ]
+        },
+        "area": "Pacific"
+    },
+    {
+        "timestamp": "2025-12-15 23:14:00",
+        "user": "user",
+        "input": {
+            "area": "77th Street",
+            "lat": 33.9698,
+            "lon": -118.2833,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 19,
+            "victim_age": 30
+        },
+        "result": {
+            "prediction": "BURGLARY FROM VEHICLE",
+            "confidence": 0.4134571850299835,
+            "top_3": [
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.4134571850299835
+                },
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - PETTY ($950 & UNDER)",
+                    "probabilitat": 0.27987244725227356
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.27721524238586426
+                }
+            ]
+        },
+        "area": "77th Street"
+    },
+    {
+        "timestamp": "2025-12-15 23:13:48",
+        "user": "user",
+        "input": {
+            "area": "77th Street",
+            "lat": 33.9698,
+            "lon": -118.2833,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 12,
+            "victim_age": 30
+        },
+        "result": {
+            "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+            "confidence": 0.32602784037590027,
+            "top_3": [
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.32602784037590027
+                },
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - PETTY ($950 & UNDER)",
+                    "probabilitat": 0.3207319676876068
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.2837664484977722
+                }
+            ]
+        },
+        "area": "77th Street"
+    },
+    {
+        "timestamp": "2025-12-15 23:09:15",
+        "user": "user",
+        "input": {
+            "area": "Southeast",
+            "lat": 33.9425,
+            "lon": -118.2781,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 22,
+            "victim_age": 45
+        },
+        "result": {
+            "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+            "confidence": 0.7737112045288086,
+            "top_3": [
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.7737112045288086
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.1499221920967102
+                },
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - PETTY ($950 & UNDER)",
+                    "probabilitat": 0.06986669450998306
+                }
+            ]
+        },
+        "area": "Southeast"
+    },
+    {
+        "timestamp": "2025-12-15 23:07:26",
+        "user": "user",
+        "input": {
+            "area": "Hollenbeck",
+            "lat": 34.0736,
+            "lon": -118.2156,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 22,
+            "victim_age": 45
+        },
+        "result": {
+            "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+            "confidence": 0.8074233531951904,
+            "top_3": [
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.8074233531951904
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.13027384877204895
+                },
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - PETTY ($950 & UNDER)",
+                    "probabilitat": 0.05684869736433029
+                }
+            ]
+        },
+        "area": "Hollenbeck"
+    },
+    {
+        "timestamp": "2025-12-15 23:07:03",
+        "user": "user",
+        "input": {
+            "area": "77th Street",
+            "lat": 33.9698,
+            "lon": -118.2833,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 0,
+            "hour": 12,
+            "victim_age": 30
+        },
+        "result": {
+            "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+            "confidence": 0.7548514008522034,
+            "top_3": [
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.7548514008522034
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.15073642134666443
+                },
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - PETTY ($950 & UNDER)",
+                    "probabilitat": 0.08066242188215256
+                }
+            ]
+        },
+        "area": "77th Street"
+    },
+    {
+        "timestamp": "2025-12-09 17:03:35.519588",
+        "area": "Harbor",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.9129776954650879
+    },
+    {
+        "timestamp": "2025-12-09 17:06:15.703521",
+        "area": "Central",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.9767390489578247
+    },
+    {
+        "timestamp": "2025-12-09 17:08:30.392533",
+        "area": "N Hollywood",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.8926739692687988
+    },
+    {
+        "timestamp": "2025-12-09 17:08:35.458127",
+        "area": "N Hollywood",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.8926739692687988
+    },
+    {
+        "timestamp": "2025-12-09 17:08:46.813649",
+        "area": "Topanga",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.737606942653656
+    },
+    {
+        "timestamp": "2025-12-09 17:08:57.643090",
+        "area": "West LA",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.7297533750534058
+    },
+    {
+        "timestamp": "2025-12-09 17:09:02.643709",
+        "area": "West LA",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.7297533750534058
+    },
+    {
+        "timestamp": "2025-12-09 17:09:15.818870",
+        "area": "Olympic",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.9533975124359131
+    },
+    {
+        "timestamp": "2025-12-09 17:09:29.242077",
+        "area": "Wilshire",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.9475908875465393
+    },
+    {
+        "timestamp": "2025-12-09 17:09:39.976158",
+        "area": "Southeast",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.9751384258270264
+    },
+    {
+        "timestamp": "2025-12-09 17:09:44.572177",
+        "area": "Southeast",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.9756364226341248
+    },
+    {
+        "timestamp": "2025-12-09 17:09:55.417838",
+        "area": "Southeast",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.9766086339950562
+    },
+    {
+        "timestamp": "2025-12-09 17:13:10.708316",
+        "area": "Southeast",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.9775556325912476
+    },
+    {
+        "timestamp": "2025-12-09 17:13:26.161667",
+        "area": "Hollenbeck",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.9670109152793884
+    },
+    {
+        "timestamp": "2025-12-09 17:25:04.660576",
+        "area": "Van Nuys",
+        "prediction": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+        "confidence": 0.8356914520263672
+    }
+]
