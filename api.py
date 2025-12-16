@@ -29,8 +29,9 @@ def load_ml_models():
         artifacts['model'] = tf.keras.models.load_model(os.path.join(base_dir, "crime_model.keras"))
         artifacts['scaler'] = joblib.load(os.path.join(base_dir, "scaler.joblib"))
         artifacts['le'] = joblib.load(os.path.join(base_dir, "label_encoder.joblib"))
+        artifacts['le_severity'] = joblib.load(os.path.join(base_dir, "severity_encoder.joblib"))  # NUEVO
         artifacts['feature_cols'] = joblib.load(os.path.join(base_dir, "feature_cols.joblib"))
-        print("✅ API: Modelos de IA cargados.")
+        print("✅ API: Modelos de IA cargados (multi-salida con severidad).")
     except Exception as e:
         print(f"❌ API Error Modelos: {e}")
 
@@ -196,6 +197,7 @@ class CrimeInput(BaseModel):
     victim_age: int
     victim_sex: str  # 'F', 'M', 'X'
 
+
 @app.post("/predict")
 def predict_crime(data: CrimeInput, username: str = Depends(authenticate)):
     if 'model' not in artifacts: raise HTTPException(503, "Modelo no cargado")
@@ -216,16 +218,36 @@ def predict_crime(data: CrimeInput, username: str = Depends(authenticate)):
         # Procesar
         input_df = input_df[artifacts['feature_cols']]
         X_scaled = artifacts['scaler'].transform(input_df)
-        pred_probs = artifacts['model'].predict(X_scaled, verbose=0)
         
-        # Resultados
-        top_idx = np.argmax(pred_probs)
+        # 🔥 MODELO MULTI-SALIDA: Devuelve [crime_probs, severity_probs]
+        predictions = artifacts['model'].predict(X_scaled, verbose=0)
+        
+        # Extraer predicciones de ambas salidas
+        crime_probs = predictions[0][0]  # Primera salida: tipo de crimen
+        severity_probs = predictions[1][0]  # Segunda salida: severidad
+        
+        # Resultados del tipo de crimen
+        top_idx = np.argmax(crime_probs)
         prediction = artifacts['le'].inverse_transform([top_idx])[0]
-        confidence = float(np.max(pred_probs))
+        confidence = float(np.max(crime_probs))
         
-        top_3_idx = np.argsort(pred_probs[0])[-3:][::-1]
-        top_3 = [{"crim": artifacts['le'].inverse_transform([i])[0], "probabilitat": float(pred_probs[0][i])} for i in top_3_idx]
+        top_3_idx = np.argsort(crime_probs)[-3:][::-1]
+        top_3 = [{
+            "crim": artifacts['le'].inverse_transform([i])[0], 
+            "probabilitat": float(crime_probs[i])
+        } for i in top_3_idx]
+        
+        # 🔥 NUEVO: Resultados de severidad
+        severity_idx = np.argmax(severity_probs)
+        severity = artifacts['le_severity'].inverse_transform([severity_idx])[0]
+        severity_confidence = float(np.max(severity_probs))
 
-        return {"prediction": prediction, "confidence": confidence, "top_3": top_3}
+        return {
+            "prediction": prediction, 
+            "confidence": confidence, 
+            "top_3": top_3,
+            "severity": severity,  # NUEVO: PELIGROSO o SEGURO
+            "severity_confidence": severity_confidence  # NUEVO: Confianza de severidad
+        }
     except Exception as e:
         raise HTTPException(500, str(e))

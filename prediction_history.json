@@ -1,5 +1,77 @@
 [
     {
+        "timestamp": "2025-12-16 15:53:56",
+        "user": "user",
+        "input": {
+            "area": "77th Street",
+            "lat": 33.9698,
+            "lon": -118.2833,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 1,
+            "hour": 4,
+            "victim_age": 36,
+            "victim_sex": "F"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.6241169571876526,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.6241169571876526
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.29332372546195984
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.06423895806074142
+                }
+            ],
+            "severity": "SEGURO",
+            "severity_confidence": 0.606816828250885
+        },
+        "area": "77th Street"
+    },
+    {
+        "timestamp": "2025-12-16 15:20:14",
+        "user": "user",
+        "input": {
+            "area": "Southeast",
+            "lat": 33.9425,
+            "lon": -118.2781,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 1,
+            "hour": 2,
+            "victim_age": 49,
+            "victim_sex": "M"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.7394388318061829,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.7394388318061829
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.21677745878696442
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.036454085260629654
+                }
+            ],
+            "severity": "SEGURO",
+            "severity_confidence": 0.6621820330619812
+        },
+        "area": "Southeast"
+    },
+    {
         "timestamp": "2025-12-16 11:19:55",
         "user": "user",
         "input": {
