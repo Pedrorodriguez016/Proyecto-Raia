@@ -1,5 +1,41 @@
 [
     {
+        "timestamp": "2025-12-16 19:34:28",
+        "user": "user",
+        "input": {
+            "area": "Devonshire",
+            "lat": 34.2864,
+            "lon": -118.5021,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 2,
+            "hour": 8,
+            "victim_age": 22,
+            "victim_sex": "F"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.6512671709060669,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.6512671709060669
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.17813518643379211
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.14408554136753082
+                }
+            ],
+            "severity": "PELIGROSO",
+            "severity_confidence": 0.5355355739593506
+        },
+        "area": "Devonshire"
+    },
+    {
         "timestamp": "2025-12-16 15:53:56",
         "user": "user",
         "input": {

@@ -60,13 +60,16 @@ def load_data_for_chatbot():
 
 # -------------------- LÓGICA DEL CHATBOT (Backend) --------------------
 CRIME_MAP = {
-    'robatori': 'ROBBERY', 'robatoris': 'ROBBERY', 'homicidi': 'HOMICIDE',
-    'agressió': 'AGGRAVATED ASSAULT', 'violació': 'RAPE', 'furt': 'THEFT'
+    'robo': 'ROBBERY', 'robos': 'ROBBERY', 'atraco': 'ROBBERY', 'atracos': 'ROBBERY',
+    'homicidio': 'HOMICIDE', 'homicidios': 'HOMICIDE', 'asesinato': 'HOMICIDE',
+    'agresión': 'AGGRAVATED ASSAULT', 'agresiones': 'AGGRAVATED ASSAULT', 'asalto': 'ASSAULT',
+    'violación': 'RAPE', 'violaciones': 'RAPE',
+    'hurto': 'THEFT', 'hurtos': 'THEFT', 'robo menor': 'THEFT'
 }
-SINONIMS_TEMPORAL = r'(tendències|evolución|canvi|al llarg del temps|ha pujat|ha baixat|dades anuals|evolució)'
-SINONIMS_COMPARACIO = r'(diferència|comparació|versus|contra|quin és millor|quin és pitjor|dues zones|compara)'
-SINONIMS_DEMOGRAFIC = r'(menors|menys de|més de|majors|entre|anys|edat|gènere|sexe|dones|homes|víctima)'
-SINONIMS_INTERVAL_HORARI = r'(entre\s+les\s+(\d{1,2})\s+i\s+les\s+(\d{1,2}))'
+SINONIMS_TEMPORAL = r'(tendencia|tendencias|evolución|cambio|a lo largo del tiempo|ha subido|ha bajado|datos anuales|año|años)'
+SINONIMS_COMPARACIO = r'(diferencia|comparación|comparar|versus|vs|contra|cuál es mejor|cuál es peor|dos zonas|compara)'
+SINONIMS_DEMOGRAFIC = r'(menores|menos de|más de|mayores|entre|edad|género|sexo|mujeres|hombres|víctima)'
+SINONIMS_INTERVAL_HORARI = r'(entre\s+las?\s+(\d{1,2})\s+y\s+las?\s+(\d{1,2}))'
 
 def process_chat_logic(prompt: str):
     if global_df is None:
@@ -82,7 +85,7 @@ def process_chat_logic(prompt: str):
             detected_crime = v
             break
             
-    # 2. Análisis de Intervalos (Ej: "entre les 20 i les 23")
+    # 2. Análisis de Intervalos (Ej: "entre las 20 y las 23")
     match_interval = re.search(SINONIMS_INTERVAL_HORARI, prompt_lower)
     if match_interval:
         try:
@@ -91,10 +94,10 @@ def process_chat_logic(prompt: str):
                 count = len(df_full[(df_full['HOUR OCC'] >= start) & (df_full['HOUR OCC'] <= end)])
             else:
                 count = len(df_full[(df_full['HOUR OCC'] >= start) | (df_full['HOUR OCC'] <= end)])
-            return f"He analitzat el període entre les {start}:00 i les {end}:00. Es van registrar **{count:,} incidents**."
+            return f"He analizado el período entre las {start}:00 y las {end}:00. Se registraron **{count:,} incidentes**."
         except: pass
 
-    # 3. Comparación (Ej: "Comparació Central versus Hollywood")
+    # 3. Comparación (Ej: "Compara Central versus Hollywood")
     if re.search(SINONIMS_COMPARACIO, prompt_lower):
         areas_found = [a for a in unique_areas if a.lower() in prompt_lower]
         if len(areas_found) >= 2:
@@ -103,21 +106,21 @@ def process_chat_logic(prompt: str):
             c2 = len(df_full[df_full['AREA NAME'] == a2])
             diff = abs(c1 - c2)
             winner = a1 if c1 > c2 else a2
-            return f"Comparativa: **{a1}** ({c1:,}) vs **{a2}** ({c2:,}). La zona de **{winner}** té {diff:,} crims més."
+            return f"Comparativa: **{a1}** ({c1:,}) vs **{a2}** ({c2:,}). La zona de **{winner}** tiene {diff:,} crímenes más."
 
     # 4. Tendencias
     if re.search(SINONIMS_TEMPORAL, prompt_lower):
-        target = detected_crime or "tots els crims"
+        target = detected_crime or "todos los crímenes"
         df_trend = df_full[df_full['Crm Cd Desc'] == detected_crime] if detected_crime else df_full
         counts = df_trend['YEAR'].value_counts().sort_index()
         if len(counts) > 1:
             last, prev = counts.iloc[-1], counts.iloc[-2]
             change = ((last - prev) / prev) * 100
-            trend = "pujat" if change > 0 else "baixat"
-            return f"La tendència de '{target}' ha **{trend}** un {abs(change):.1f}% l'últim any registrat."
+            trend = "subido" if change > 0 else "bajado"
+            return f"La tendencia de '{target}' ha **{trend}** un {abs(change):.1f}% en el último año registrado."
 
     # Respuesta genérica
-    return "Sóc el cervell de l'API. Pregunta'm sobre 'tendències', 'comparacions entre zones' o 'intervals horaris'."
+    return "Soy el cerebro de la API. Pregúntame sobre 'tendencias', 'comparaciones entre zonas' o 'intervalos horarios'."
 
 # -------------------- GESTIÓN DE USUARIOS (INTEGRADA) --------------------
 import json
