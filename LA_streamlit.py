@@ -313,28 +313,104 @@ elif page == "🗺️ Navegador Seguro (OSM)":
     # --- FUNCIONES DE RUTA ---
     @st.cache_data
     def get_lat_lon(address):
-        """Convierte dirección en coordenadas (Geocoding)"""
-        geolocator = Nominatim(user_agent="raia_navigator_pro")
+        """Convierte dirección en coordenadas (Geocoding) con reintentos"""
+        # Es importante un User-Agent único según política de OSM
+        geolocator = Nominatim(user_agent="raia_navigator_project_v2")
         try:
-            # Forzamos búsqueda en LA para evitar ambigüedades
-            loc = geolocator.geocode(f"{address}, Los Angeles, CA")
-            return (loc.latitude, loc.longitude) if loc else None
-        except:
+            # 1. Intento principal: Específico en LA
+            loc = geolocator.geocode(f"{address}, Los Angeles, CA", timeout=10)
+            if loc: return (loc.latitude, loc.longitude)
+            
+            # 2. Intento secundario: Búsqueda más libre (por si el usuario ya puso ciudad)
+            loc = geolocator.geocode(address, timeout=10)
+            # Verificamos que esté restringido geográficamente (aprox) para no irnos a Europa
+            if loc and (33.0 < loc.latitude < 35.0) and (-120.0 < loc.longitude < -117.0):
+                return (loc.latitude, loc.longitude)
+                
+            return None
+        except Exception as e:
+            print(f"Error Geocoding: {e}")
             return None
 
     def get_osrm_route(start_coords, end_coords):
-        """Obtiene la geometría de la ruta desde OSRM (OpenStreetMap)"""
-        # OSRM usa lon,lat
-        url = f"http://router.project-osrm.org/route/v1/driving/{start_coords[1]},{start_coords[0]};{end_coords[1]},{end_coords[0]}?overview=full&geometries=geojson"
+        """Genera rutas alternativas coherentes usando OSRM + waypoints inteligentes"""
+        import math
+        
+        all_routes = []
+        
+        # PASO 1: Intentar obtener alternativas reales de OSRM
+        url_alternatives = f"http://router.project-osrm.org/route/v1/driving/{start_coords[1]},{start_coords[0]};{end_coords[1]},{end_coords[0]}?overview=full&geometries=geojson&alternatives=true"
         try:
-            r = requests.get(url)
+            r = requests.get(url_alternatives, timeout=5)
             if r.status_code == 200:
                 data = r.json()
-                if "routes" in data and len(data["routes"]) > 0:
-                    return data["routes"][0]["geometry"]
+                if "routes" in data:
+                    all_routes.extend(data["routes"])
         except:
             pass
-        return None
+        
+        # PASO 2: Si tenemos menos de 3 rutas, generamos alternativas inteligentes
+        if len(all_routes) < 3:
+            # Calculamos vector directorio y perpendiculares
+            lat1, lon1 = start_coords
+            lat2, lon2 = end_coords
+            
+            # Punto medio
+            mid_lat = (lat1 + lat2) / 2
+            mid_lon = (lon1 + lon2) / 2
+            
+            # Distancia entre puntos (aproximada)
+            dist = math.sqrt((lat2 - lat1)**2 + (lon2 - lon1)**2)
+            
+            # Vector normalizado de origen a destino
+            if dist > 0:
+                dx = (lat2 - lat1) / dist
+                dy = (lon2 - lon1) / dist
+                
+                # Vector perpendicular (rotación 90°)
+                perp_dx = -dy
+                perp_dy = dx
+                
+                # Generamos waypoints a diferentes distancias perpendiculares
+                # Pequeño desvío (10%), mediano (20%), grande (25% de la distancia)
+                deviations = [0.10, 0.20, 0.25]
+                
+                for deviation in deviations:
+                    offset = dist * deviation
+                    
+                    # Probamos ambos lados de la línea (izquierda y derecha)
+                    for side in [-1, 1]:
+                        waypoint_lat = mid_lat + (perp_dx * offset * side)
+                        waypoint_lon = mid_lon + (perp_dy * offset * side)
+                        
+                        # Pedimos ruta pasando por este waypoint
+                        url_via = f"http://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{waypoint_lon},{waypoint_lat};{lon2},{lat2}?overview=full&geometries=geojson"
+                        
+                        try:
+                            r = requests.get(url_via, timeout=5)
+                            if r.status_code == 200:
+                                data = r.json()
+                                if "routes" in data and len(data["routes"]) > 0:
+                                    route = data["routes"][0]
+                                    # Evitamos duplicados comparando distancias aproximadas
+                                    is_duplicate = False
+                                    route_dist = route.get("distance", 0)
+                                    for existing in all_routes:
+                                        existing_dist = existing.get("distance", 0)
+                                        if abs(route_dist - existing_dist) < 100: # 100m de tolerancia
+                                            is_duplicate = True
+                                            break
+                                    
+                                    if not is_duplicate:
+                                        all_routes.append(route)
+                                        
+                                    # Limitamos a máximo 6 rutas para no saturar
+                                    if len(all_routes) >= 6:
+                                        return all_routes
+                        except:
+                            continue
+        
+        return all_routes if all_routes else []
 
     def analyze_route_risk(route_geojson, crime_df):
         """Analiza si la ruta pasa por zonas calientes."""
@@ -380,18 +456,55 @@ elif page == "🗺️ Navegador Seguro (OSM)":
         if not origin or not dest:
             st.warning("Introduce ambas direcciones.")
         else:
-            with st.spinner("Localizando y trazando ruta en OSM..."):
+            with st.spinner("Analizando alternativas para encontrar la ruta más segura..."):
                 start = get_lat_lon(origin)
                 end = get_lat_lon(dest)
                 
                 if start and end:
-                    route_geo = get_osrm_route(start, end)
-                    if route_geo:
-                        # Guardamos en sesión para que no se borre al refrescar
+                    routes_list = get_osrm_route(start, end)
+                    
+                    if routes_list:
+                        # --- LÓGICA DE SEGURIDAD MEJORADA ---
+                        analyzed_routes = []
+                        
+                        # Iteramos todas las rutas alternativas
+                        for idx, route_obj in enumerate(routes_list):
+                            geo = route_obj["geometry"]
+                            curr_risks = analyze_route_risk(geo, df_local)
+                            curr_count = len(curr_risks)
+                            
+                            # Extraemos datos de OSRM (duración en segundos, distancia en metros)
+                            duration = route_obj.get("duration", float('inf'))
+                            distance = route_obj.get("distance", float('inf'))
+                            
+                            analyzed_routes.append({
+                                "id": idx,
+                                "geo": geo,
+                                "risks": curr_risks,
+                                "count": curr_count,
+                                "duration": duration,
+                                "distance": distance
+                            })
+                        
+                        # Ordenamos: Primero por menos riesgos, luego por menor duración
+                        analyzed_routes_sorted = sorted(
+                            analyzed_routes, 
+                            key=lambda r: (r["count"], r["duration"])
+                        )
+                        
+                        # La primera del ranking ordenado es la mejor
+                        best_route = analyzed_routes_sorted[0]
+                        best_idx = best_route["id"]
+                        min_risk_count = best_route["count"]
+                        
+                        st.success(f"Se analizaron {len(routes_list)} rutas. Ruta #{best_idx+1} recomendada ({min_risk_count} zonas de riesgo).")
+
+                        # Guardamos TODAS las rutas en sesión
                         st.session_state["route_data"] = {
                             "start": start,
                             "end": end,
-                            "route_geo": route_geo
+                            "routes": analyzed_routes,
+                            "best_idx": best_idx
                         }
                     else:
                         st.error("No se pudo calcular la ruta con OSRM.")
@@ -402,47 +515,98 @@ elif page == "🗺️ Navegador Seguro (OSM)":
     if st.session_state["route_data"]:
         data = st.session_state["route_data"]
         
-        @st.cache_resource(hash_funcs={dict: lambda d: d['start']}) # Cacheamos basado en los datos de entrada
         def create_route_map(route_info):
             start, end = route_info["start"], route_info["end"]
-            route_geo = route_info["route_geo"]
+            routes = route_info["routes"]
+            best_idx = route_info["best_idx"]
             
-            # Crear mapa centrado
+            # Crear mapa
             m = folium.Map(location=[(start[0]+end[0])/2, (start[1]+end[1])/2], zoom_start=13)
             
-            # 1. Pintar Ruta
-            folium.GeoJson(
-                route_geo, 
-                name="Ruta Sugerida",
-                style_function=lambda x: {'color': '#3388ff', 'weight': 5, 'opacity': 0.8}
-            ).add_to(m)
+            # 1. Pintar TODAS las rutas con gradiente de color según peligro
+            # Calculamos el rango de riesgos para normalizar colores
+            risk_counts = [r["count"] for r in routes]
+            min_risk = min(risk_counts)
+            max_risk = max(risk_counts)
+            risk_range = max_risk - min_risk if max_risk > min_risk else 1
+            
+            for r in routes:
+                is_best = (r["id"] == best_idx)
+                
+                # Sistema de color por nivel de peligro (gradiente)
+                if is_best:
+                    # La mejor siempre verde brillante
+                    color = '#00cc66'
+                    weight = 7
+                    opacity = 1.0
+                else:
+                    # Calculamos nivel de peligro normalizado (0.0 = seguro, 1.0 = muy peligroso)
+                    danger_level = (r["count"] - min_risk) / risk_range if risk_range > 0 else 0
+                    
+                    # Gradiente de color: Verde → Amarillo → Naranja → Rojo
+                    if danger_level < 0.33:
+                        color = '#FFEB3B'  # Amarillo (peligro bajo)
+                    elif danger_level < 0.66:
+                        color = '#FF9800'  # Naranja (peligro medio)
+                    else:
+                        color = '#F44336'  # Rojo (peligro alto)
+                    
+                    weight = 5
+                    opacity = 0.75
+                
+                tooltip_txt = f"Ruta {r['id']+1}: {r['count']} zonas de riesgo" + (" ✅ RECOMENDADA" if is_best else "")
+                
+                folium.GeoJson(
+                    r["geo"], 
+                    name=f"Ruta {r['id']+1}",
+                    style_function=lambda x, c=color, w=weight, o=opacity: {'color': c, 'weight': w, 'opacity': o},
+                    tooltip=tooltip_txt
+                ).add_to(m)
+                
+                # Solo pintamos los marcadores de riesgo en la ruta seleccionada para no saturar
+                if is_best and r["risks"]:
+                    for risk in r["risks"]:
+                         folium.CircleMarker(
+                            location=[risk['lat'], risk['lon']],
+                            radius=6, color='red', fill=True, fill_color='#cc0000', fill_opacity=0.8,
+                            popup=f"⚠️ Riesgo: {risk['desc']}"
+                        ).add_to(m)
             
             # 2. Marcadores Inicio/Fin
             folium.Marker(start, popup="Origen", icon=folium.Icon(color='green', icon='play')).add_to(m)
             folium.Marker(end, popup="Destino", icon=folium.Icon(color='black', icon='stop')).add_to(m)
             
-            # 3. Analizar Riesgo (esto podría estar fuera si cambia dinámicamente, pero aquí es estático por ruta)
-            risks = analyze_route_risk(route_geo, df_local)
-            
-            if risks:
-                for r in risks:
-                    folium.CircleMarker(
-                        location=[r['lat'], r['lon']],
-                        radius=10, color='red', fill=True, fill_color='red',
-                        popup=f"Zona Peligrosa: ~{r['count']} incidentes recientes.\nFrecuente: {r['desc']}"
-                    ).add_to(m)
-
-            # 4. Capa de Calor (Contexto)
+            # 3. Capa de Calor (Contexto)
             heat_data = [[row['LAT'], row['LON']] for index, row in df_local.sample(min(1000, len(df_local))).iterrows()]
             HeatMap(heat_data, radius=10, blur=15, gradient={0.4: 'yellow', 0.65: 'orange', 1: 'red'}).add_to(m)
             
-            return m, risks # Retornamos mapa y riesgos
+            return m
 
-        m_route, risks_found = create_route_map(data)
+        m_route = create_route_map(data)
 
-        if risks_found:
-            st.error(f"⚠️ ¡Atención! Se detectaron {len(risks_found)} puntos conflictivos en esta ruta.")
+        # Información de rutas analizadas
+        st.markdown(f"### 🛣️ Comparativa de Rutas")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Rutas Analizadas", len(data["routes"]))
+        with col2:
+            st.metric("Ruta Recomendada", f"#{data['best_idx']+1}")
+        with col3:
+            best_r = next(r for r in data["routes"] if r["id"] == data["best_idx"])
+            risk_count = best_r["count"]
+            st.metric("Zonas de Riesgo", risk_count, delta=None if risk_count == 0 else "⚠️")
+        
+        # Resumen final
+        if risk_count > 0:
+            st.warning(f"⚠️ Atención: La ruta recomendada atraviesa {risk_count} zonas calientes. Las alternativas eran peores.")
         else:
-            st.success("✅ La ruta parece segura (baja exposición a crímenes recientes).")
+            st.success("✅ Ruta Limpia: La ruta seleccionada evita todas las zonas conflictivas detectadas.")
+        
+        # Detalles de cada ruta (expandible)
+        with st.expander("📋 Ver detalles de todas las rutas"):
+            for r in data["routes"]:
+                is_selected = (r["id"] == data["best_idx"])
+                emoji = "✅" if is_selected else "⚪"
+                st.write(f"{emoji} **Ruta {r['id']+1}**: {r['count']} zonas de riesgo" + (" **(RECOMENDADA)**" if is_selected else ""))
 
         st_folium(m_route, width=900, height=500, key="safe_route_map", returned_objects=[])
