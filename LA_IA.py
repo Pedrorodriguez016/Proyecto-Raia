@@ -1,8 +1,4 @@
 """Script de gestión de datos de crímenes en LA - BALANCED EDITION.
-
-1. Explore  -> Gráficas ORIGINALES intactas.
-2. Model    -> Red Neuronal TensorFlow (Top 10 Crímenes).
-3. Save     -> Guarda modelo + scaler + label encoder + feature_cols para Streamlit.
 """
 
 from pathlib import Path
@@ -79,7 +75,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ----------------------------------------------------------
-# 🔥 NUEVA FUNCIÓN: Clasificar crímenes por severidad (2 NIVELES)
+# CLASIFICACIÓN DE SEVERIDAD
 # ----------------------------------------------------------
 def classify_crime_severity(crime_desc):
     """Clasifica un crimen en PELIGROSO o SEGURO según riesgo personal"""
@@ -88,7 +84,7 @@ def classify_crime_severity(crime_desc):
     
     crime_upper = str(crime_desc).upper()
     
-    # 🔴 PELIGROSO: Crímenes violentos o con riesgo personal directo
+    # PELIGROSO: Crímenes violentos o con riesgo personal directo
     DANGEROUS_KEYWORDS = [
         # Violencia grave
         'HOMICIDE', 'MURDER', 'MANSLAUGHTER',
@@ -154,20 +150,20 @@ def prepare_data(df: pd.DataFrame):
     top_classes = work_df[target_col].value_counts().head(10).index
     work_df = work_df[work_df[target_col].isin(top_classes)]
     
-    # 🔥 NUEVO: Agregar columna de SEVERIDAD (2 NIVELES)
+    # NUEVO: Agregar columna de SEVERIDAD (2 NIVELES)
     print("[Prepare] Clasificando crímenes por severidad (PELIGROSO/SEGURO)...")
     work_df['SEVERITY'] = work_df[target_col].apply(classify_crime_severity)
     
     severity_counts = work_df['SEVERITY'].value_counts()
-    print(f"  🔴 PELIGROSO: {severity_counts.get('PELIGROSO', 0):,} casos")
-    print(f"  🟢 SEGURO:    {severity_counts.get('SEGURO', 0):,} casos")
+    print(f"  PELIGROSO: {severity_counts.get('PELIGROSO', 0):,} casos")
+    print(f"  SEGURO:    {severity_counts.get('SEGURO', 0):,} casos")
     
     # Mostrar balance
     total = len(work_df)
     pct_dangerous = (severity_counts.get('PELIGROSO', 0) / total * 100) if total > 0 else 0
     print(f"  Balance: {pct_dangerous:.1f}% peligrosos, {100-pct_dangerous:.1f}% seguros")
     
-    # --- 🔥 BALANCEO CON CLASS WEIGHTS ---
+    # --- BALANCEO CON CLASS WEIGHTS ---
     print("[Prepare] Usando todo el dataset (Top 10) y calculando pesos de clase...")
 
     print(f"[Prepare] Clases a predecir: {list(top_classes)}")
@@ -230,12 +226,12 @@ def train_neural_model(X_train, X_test, y_crime_train, y_crime_test, y_severity_
     shared = layers.BatchNormalization()(shared)
     shared = layers.Dropout(0.3)(shared)
     
-    # 🎯 SALIDA 1: Tipo de Crimen (principal)
+    # SALIDA 1: Tipo de Crimen (principal)
     crime_output = layers.Dense(64, activation='relu', name='crime_branch')(shared)
     crime_output = layers.Dropout(0.2)(crime_output)
     crime_output = layers.Dense(num_crime_classes, activation='softmax', name='crime_type')(crime_output)
     
-    # 🎯 SALIDA 2: Severidad (secundaria)
+    # SALIDA 2: Severidad (secundaria)
     severity_output = layers.Dense(32, activation='relu', name='severity_branch')(shared)
     severity_output = layers.Dropout(0.2)(severity_output)
     severity_output = layers.Dense(num_severity_classes, activation='softmax', name='severity_level')(severity_output)
@@ -313,7 +309,7 @@ def save_artifacts(model, scaler, label_encoder_crime, label_encoder_severity, f
     joblib.dump(label_encoder_severity, "severity_encoder.joblib")  # NUEVO
     joblib.dump(feature_cols, "feature_cols.joblib")
 
-    print("✅ Modelo multi-salida guardado correctamente:")
+    print("Modelo multi-salida guardado correctamente:")
     print(" - crime_model.keras")
     print(" - scaler.joblib")
     print(" - label_encoder.joblib (tipos de crimen)")

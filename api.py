@@ -29,21 +29,23 @@ def load_ml_models():
         artifacts['model'] = tf.keras.models.load_model(os.path.join(base_dir, "crime_model.keras"))
         artifacts['scaler'] = joblib.load(os.path.join(base_dir, "scaler.joblib"))
         artifacts['le'] = joblib.load(os.path.join(base_dir, "label_encoder.joblib"))
-        artifacts['le_severity'] = joblib.load(os.path.join(base_dir, "severity_encoder.joblib"))  # NUEVO
+        artifacts['le_severity'] = joblib.load(os.path.join(base_dir, "severity_encoder.joblib"))
         artifacts['feature_cols'] = joblib.load(os.path.join(base_dir, "feature_cols.joblib"))
-        print("✅ API: Modelos de IA cargados (multi-salida con severidad).")
+        print("API: Modelos de IA cargados (multi-salida con severidad).")
     except Exception as e:
-        print(f"❌ API Error Modelos: {e}")
+        print(f"API Error Modelos: {e}")
 
 def load_data_for_chatbot():
     """Carga el CSV para que el chatbot pueda consultar estadísticas reales."""
     global global_df, unique_areas
     try:
-        csv_path = "Crime_Data_from_2020_to_Present.csv"
+        csv_path = os.path.join("output", "crimes_clean.csv")
+        if not os.path.exists(csv_path):
+            csv_path = "Crime_Data_from_2020_to_Present.csv"
+            
         if os.path.exists(csv_path):
-            # Cargamos solo columnas necesarias para ahorrar memoria
-            cols = ["DATE OCC", "TIME OCC", "AREA NAME", "Crm Cd Desc", "Vict Sex", "Vict Age"]
-            df = pd.read_csv(csv_path, usecols=lambda c: c in cols)
+            # Cargamos, intentando inferir columnas si es el clean o el raw
+            df = pd.read_csv(csv_path)
             
             # Preproceso ligero
             df["DATE OCC"] = pd.to_datetime(df["DATE OCC"], errors="coerce")
@@ -52,11 +54,11 @@ def load_data_for_chatbot():
             
             global_df = df
             unique_areas = sorted(df["AREA NAME"].dropna().unique().tolist())
-            print(f"✅ API: Datos para Chatbot cargados ({len(df)} registros).")
+            print(f"API: Datos para Chatbot cargados ({len(df)} registros).")
         else:
-            print("⚠️ API: No se encontró el CSV. El chatbot tendrá funciones limitadas.")
+            print("API: No se encontró el CSV. El chatbot tendrá funciones limitadas.")
     except Exception as e:
-        print(f"❌ API Error Datos: {e}")
+        print(f"API Error Datos: {e}")
 
 # -------------------- LÓGICA DEL CHATBOT (Backend) --------------------
 CRIME_MAP = {
@@ -222,7 +224,7 @@ def predict_crime(data: CrimeInput, username: str = Depends(authenticate)):
         input_df = input_df[artifacts['feature_cols']]
         X_scaled = artifacts['scaler'].transform(input_df)
         
-        # 🔥 MODELO MULTI-SALIDA: Devuelve [crime_probs, severity_probs]
+        # MODELO MULTI-SALIDA: Devuelve [crime_probs, severity_probs]
         predictions = artifacts['model'].predict(X_scaled, verbose=0)
         
         # Extraer predicciones de ambas salidas
@@ -240,7 +242,7 @@ def predict_crime(data: CrimeInput, username: str = Depends(authenticate)):
             "probabilitat": float(crime_probs[i])
         } for i in top_3_idx]
         
-        # 🔥 NUEVO: Resultados de severidad
+        # Resultados de severidad
         severity_idx = np.argmax(severity_probs)
         severity = artifacts['le_severity'].inverse_transform([severity_idx])[0]
         severity_confidence = float(np.max(severity_probs))
@@ -249,8 +251,12 @@ def predict_crime(data: CrimeInput, username: str = Depends(authenticate)):
             "prediction": prediction, 
             "confidence": confidence, 
             "top_3": top_3,
-            "severity": severity,  # NUEVO: PELIGROSO o SEGURO
-            "severity_confidence": severity_confidence  # NUEVO: Confianza de severidad
+            "severity": severity,
+            "severity_confidence": severity_confidence
         }
     except Exception as e:
         raise HTTPException(500, str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)

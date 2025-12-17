@@ -6,11 +6,16 @@ import json
 import os
 import time
 import datetime
+import math
+import folium
+from streamlit_folium import st_folium
+from folium.plugins import HeatMap
+from geopy.geocoders import Nominatim
 
 # URL DE TU API (Backend)
 API_URL = "http://127.0.0.1:8000"
 
-st.set_page_config(page_title="RAIA - Frontend", layout="wide", page_icon="🚓")
+st.set_page_config(page_title="RAIA - Frontend", layout="wide")
 
 # -------------------- DICCIONARIO DE TRADUCCIÓN --------------------
 CRIME_TRANSLATIONS = {
@@ -75,6 +80,13 @@ def translate_crime(crime_name):
     # Si no hay traducción, retornar original
     return crime_name
 
+def format_duration(min_val):
+    if min_val >= 60:
+        h = min_val // 60
+        m = min_val % 60
+        return f"{h}h {m}min"
+    return f"{min_val} min"
+
 # -------------------- GESTIÓN DE CACHE / HISTORIAL --------------------
 HISTORY_FILE = "prediction_history.json"
 
@@ -108,27 +120,27 @@ def save_to_history(input_data, result, area_name, username):
 # -------------------- CLIENTE HTTP PARA API --------------------
 def api_login(username, password):
     try:
-        response = requests.post(f"{API_URL}/check-login", auth=(username, password))
+        response = requests.post(f"{API_URL}/check-login", auth=(username, password), timeout=5)
         return response.status_code == 200
     except requests.exceptions.ConnectionError:
-        st.error("❌ No se puede conectar con la API. Ejecuta 'python -m uvicorn api:app'")
+        st.error("No se puede conectar con la API. Ejecuta 'python -m uvicorn api:app'")
         return False
 
 def api_register(username, password):
     try:
         payload = {"username": username, "password": password}
-        response = requests.post(f"{API_URL}/register", json=payload)
+        response = requests.post(f"{API_URL}/register", json=payload, timeout=5)
         return response.status_code == 200
     except:
         return False
 
 def api_predict(data_dict, username, password):
     try:
-        response = requests.post(f"{API_URL}/predict", json=data_dict, auth=(username, password))
+        response = requests.post(f"{API_URL}/predict", json=data_dict, auth=(username, password), timeout=10)
         if response.status_code == 200:
             return response.json()
         elif response.status_code == 503:
-            st.warning("⚠️ El modelo aún no está cargado en el servidor.")
+            st.warning("El modelo aún no está cargado en el servidor.")
             return None
         else:
             st.error(f"Error API: {response.text}")
@@ -140,7 +152,7 @@ def api_predict(data_dict, username, password):
 def api_chat(message, username, password):
     try:
         payload = {"message": message}
-        response = requests.post(f"{API_URL}/chat", json=payload, auth=(username, password))
+        response = requests.post(f"{API_URL}/chat", json=payload, auth=(username, password), timeout=10)
         if response.status_code == 200:
             return response.json()['response']
         return "Error en el Chatbot API"
@@ -154,7 +166,7 @@ if "password" not in st.session_state: st.session_state["password"] = None
 def login_screen():
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        st.title("🔒 RAIA SECURE ACCESS")
+        st.title("RAIA SECURE ACCESS")
         st.markdown("Autenticación requerida para acceder al sistema.")
         
         tab1, tab2 = st.tabs(["Ingresar", "Registro"])
@@ -162,7 +174,7 @@ def login_screen():
         with tab1:
             u = st.text_input("Usuario", key="l_user")
             p = st.text_input("Contraseña", type="password", key="l_pass")
-            if st.button("🚀 Iniciar Sesión"):
+            if st.button("Iniciar Sesión"):
                 with st.spinner("Autenticando..."):
                     if api_login(u, p):
                         st.session_state["username"] = u
@@ -176,7 +188,7 @@ def login_screen():
         with tab2:
             nu = st.text_input("Nuevo Usuario", key="r_user")
             np = st.text_input("Nueva Contraseña", type="password", key="r_pass")
-            if st.button("📝 Crear Cuenta"):
+            if st.button("Crear Cuenta"):
                 if api_register(nu, np):
                     st.success("Usuario creado.")
                 else:
@@ -187,28 +199,70 @@ if not st.session_state["username"]:
     st.stop()
 
 # ==================== APP PRINCIPAL ====================
-st.sidebar.markdown(f"### 👤 {st.session_state['username']}")
+st.sidebar.markdown(f"### {st.session_state['username']}")
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state["username"] = None
     st.rerun()
 
 st.sidebar.markdown("---")
 page = st.sidebar.radio("Navegación", 
-    ["📊 Dashboard", "🧠 Predicción de Crimen", "📜 Historial / Cache", "💬 Asistente IA", "🗺️ Navegador Seguro (OSM)"]
+    ["Dashboard", "Predicción de Crimen", "Historial / Cache", "Asistente IA", "Navegador Seguro (OSM)"]
 )
 
 # Carga de datos local para visualización
-@st.cache_data
+@st.cache_data(show_spinner="Cargando dataset optimizado...")
 def load_viz_data():
     try:
-        df = pd.read_csv("Crime_Data_from_2020_to_Present.csv")
-        df = df.dropna(subset=["LAT", "LON", "AREA NAME"])
-        if "DATE OCC" in df.columns: df["YEAR"] = pd.to_datetime(df["DATE OCC"], errors='coerce').dt.year
-        return df, sorted(df["AREA NAME"].unique())
-    except:
+        csv_path = os.path.join("output", "crimes_clean.csv")
+        if not os.path.exists(csv_path):
+            # Fallback al original si no existe el limpio
+            csv_path = "Crime_Data_from_2020_to_Present.csv"
+            
+        cols = ["LAT", "LON", "AREA NAME", "DATE OCC", "Crm Cd Desc", "Vict Age", "Vict Sex"]
+        # Intentamos leer solo columnas necesarias, pero crimes_clean podría tener nombres distintos
+        # Si es el dataset limpio, asumimos que ya está bien formad o verificamos columnas.
+        # Para seguridad, leemos normal primero y filtramos, o usamos usecols si estamos seguros.
+        # Al ser 'clean', es probable que ya no necesite tantos drops/conversions pero mantenemos la robustez.
+        df = pd.read_csv(csv_path) 
+        
+        # Estandarización de nombres si difieren en el clean (asumiendo estructura similar)
+        # Si el clean ya tiene YEAR, DATE OCC parseado, mejor.
+        
+        if "LAT" not in df.columns and "lat" in df.columns: df.rename(columns={"lat": "LAT", "lon": "LON"}, inplace=True)
+        if "AREA NAME" not in df.columns and "area_name" in df.columns: df.rename(columns={"area_name": "AREA NAME"}, inplace=True)
+        
+        # Si ha funcionado, devolvemos
+        if "LAT" in df.columns and "LON" in df.columns:
+            df = df.dropna(subset=["LAT", "LON"])
+        
+        if "DATE OCC" in df.columns: 
+            df["DATE OCC"] = pd.to_datetime(df["DATE OCC"], errors='coerce')
+            df["YEAR"] = df["DATE OCC"].dt.year
+        elif "date_occ" in df.columns:
+             df["DATE OCC"] = pd.to_datetime(df["date_occ"], errors='coerce')
+             df["YEAR"] = df["DATE OCC"].dt.year
+             
+        # Si ha funcionado, devolvemos
+        return df, sorted(df["AREA NAME"].dropna().unique()) if "AREA NAME" in df.columns else []
+    except Exception as e:
+        print(f"Error loading data: {e}")
+        st.error(f"Error cargando datos: {e}")
         return pd.DataFrame(), []
 
-df_local, areas = load_viz_data()
+df_local = pd.DataFrame()
+areas = []
+
+# Debug visual
+placeholder = st.empty()
+placeholder.info("Inicializando aplicación...")
+
+try:
+    df_local, areas = load_viz_data()
+    placeholder.success("Datos cargados correctamente.")
+    time.sleep(1)
+    placeholder.empty()
+except Exception as e:
+    placeholder.error(f"Error fatal cargando datos: {e}")
 
 # --- FUNCIONES PARA CHATBOT (DEFINIDAS ANTES DE USO) ---
 def process_command(command: str, df: pd.DataFrame, areas: list) -> str:
@@ -217,14 +271,14 @@ def process_command(command: str, df: pd.DataFrame, areas: list) -> str:
     
     if cmd == "/help":
         return (
-            "## 📚 Comandos Disponibles\n\n"
+            "## Comandos Disponibles\n\n"
             "- `/help` - Muestra esta ayuda\n"
             "- `/stats` - Estadísticas generales del dataset\n"
             "- `/zones` - Lista de zonas monitoreadas\n"
             "- `/trends` - Tendencias temporales recientes\n"
             "- `/top` - Top 10 crímenes más frecuentes\n"
             "- `/clear` - Limpia el historial de conversación\n\n"
-            "💬 También puedes hacer preguntas como:\n"
+            "También puedes hacer preguntas como:\n"
             "- '¿Cuál es la zona más peligrosa?'\n"
             "- '¿A qué hora hay más crímenes?'\n"
             "- 'Compara Central vs Hollywood'"
@@ -232,7 +286,7 @@ def process_command(command: str, df: pd.DataFrame, areas: list) -> str:
     
     elif cmd == "/stats":
         if df.empty:
-            return "⚠️ No hay datos disponibles."
+            return "No hay datos disponibles."
         
         total = len(df)
         zones = len(areas)
@@ -240,17 +294,17 @@ def process_command(command: str, df: pd.DataFrame, areas: list) -> str:
         crimes = len(df['Crm Cd Desc'].unique()) if 'Crm Cd Desc' in df.columns else "N/A"
         
         return (
-            f"## 📊 Estadísticas Generales\n\n"
+            f"## Estadísticas Generales\n\n"
             f"- **Total de registros:** {total:,}\n"
             f"- **Zonas monitoreadas:** {zones}\n"
             f"- **Años de datos:** {years}\n"
             f"- **Tipos de crímenes diferentes:** {crimes}\n\n"
-            f"🔍 Usa `/zones` para ver las zonas o `/top` para ver los crímenes más frecuentes."
+            f"Usa `/zones` para ver las zonas o `/top` para ver los crímenes más frecuentes."
         )
     
     elif cmd == "/zones":
         if not areas:
-            return "⚠️ No hay zonas disponibles."
+            return "No hay zonas disponibles."
         
         # Calcular incidentes por zona
         if not df.empty and 'AREA NAME' in df.columns:
@@ -259,14 +313,14 @@ def process_command(command: str, df: pd.DataFrame, areas: list) -> str:
                 f"{i+1}. **{zone}** - {zone_counts.get(zone, 0):,} incidentes" 
                 for i, zone in enumerate(sorted(areas)[:15])
             ])
-            return f"## 🏙️ Zonas Monitoreadas (Top 15)\n\n{zones_info}\n\n💡 Tip: Usa filtros en el Dashboard para análisis detallado."
+            return f"## Zonas Monitoreadas (Top 15)\n\n{zones_info}\n\nTip: Usa filtros en el Dashboard para análisis detallado."
         else:
             zones_list = "\n".join([f"{i+1}. {zone}" for i, zone in enumerate(areas[:15])])
-            return f"## 🏙️ Zonas Disponibles\n\n{zones_list}"
+            return f"## Zonas Disponibles\n\n{zones_list}"
     
     elif cmd == "/trends":
         if df.empty or 'YEAR' not in df.columns:
-            return "⚠️ No hay datos temporales disponibles."
+            return "No hay datos temporales disponibles."
         
         yearly_counts = df.groupby('YEAR').size().sort_index()
         if len(yearly_counts) >= 2:
@@ -275,36 +329,36 @@ def process_command(command: str, df: pd.DataFrame, areas: list) -> str:
             prev_count = yearly_counts.iloc[-2]
             change = ((last_count - prev_count) / prev_count * 100) if prev_count > 0 else 0
             
-            trend_emoji = "📈" if change > 0 else "📉"
+            trend_text = "(Subida)" if change > 0 else "(Bajada)"
             
             return (
-                f"## {trend_emoji} Tendencias Recientes\n\n"
+                f"## {trend_text} Tendencias Recientes\n\n"
                 f"- **Año actual ({last_year}):** {last_count:,} incidentes\n"
                 f"- **Año anterior:** {prev_count:,} incidentes\n"
                 f"- **Cambio:** {change:+.1f}%\n\n"
-                f"{'🔺 La criminalidad ha aumentado.' if change > 0 else '✅ La criminalidad ha disminuido.'}\n\n"
-                f"📊 Revisa el Dashboard para análisis detallado."
+                f"{'La criminalidad ha aumentado.' if change > 0 else 'La criminalidad ha disminuido.'}\n\n"
+                f"Revisa el Dashboard para análisis detallado."
             )
         else:
-            return "📊 Datos insuficientes para mostrar tendencias."
+            return "Datos insuficientes para mostrar tendencias."
     
     elif cmd == "/top":
         if df.empty or 'Crm Cd Desc' not in df.columns:
-            return "⚠️ No hay datos de crímenes disponibles."
+            return "No hay datos de crímenes disponibles."
         
         top_crimes = df['Crm Cd Desc'].value_counts().head(10)
         crimes_list = "\n".join([
-            f"{i+1}. **{crime}** - {count:,} casos ({count/len(df)*100:.1f}%)" 
+            f"{i+1}. **{translate_crime(crime)}** - {count:,} casos ({count/len(df)*100:.1f}%)" 
             for i, (crime, count) in enumerate(top_crimes.items())
         ])
         
-        return f"## 🔴 Top 10 Crímenes Más Frecuentes\n\n{crimes_list}\n\n🔍 Usa el Dashboard para ver gráficos interactivos."
+        return f"## Top 10 Crímenes Más Frecuentes\n\n{crimes_list}\n\nUsa el Dashboard para ver gráficos interactivos."
     
     elif cmd == "/clear":
-        return "🗑️ Usa el botón 'Limpiar Conversación' en la barra lateral para reiniciar el chat."
+        return "Usa el botón 'Limpiar Conversación' en la barra lateral para reiniciar el chat."
     
     else:
-        return f"⚠️ Comando desconocido: `{command}`\n\n💡 Usa `/help` para ver todos los comandos disponibles."
+        return f"Comando desconocido: `{command}`\n\nUsa `/help` para ver todos los comandos disponibles."
 
 
 def process_local_query(query: str, df: pd.DataFrame, areas: list) -> str:
@@ -314,20 +368,20 @@ def process_local_query(query: str, df: pd.DataFrame, areas: list) -> str:
     # Detectar tipo de consulta
     if any(word in query_lower for word in ['zona', 'area', 'peligrosa', 'peligroso', 'peor']):
         if df.empty or 'AREA NAME' not in df.columns:
-            return "⚠️ No hay datos de zonas disponibles."
+            return "No hay datos de zonas disponibles."
         
         zone_counts = df['AREA NAME'].value_counts()
         worst_zone = zone_counts.index[0]
         worst_count = zone_counts.iloc[0]
         
         return (
-            f"🚨 La zona más peligrosa es **{worst_zone}** con {worst_count:,} incidentes registrados.\n\n"
-            f"📊 Esto representa el {worst_count/len(df)*100:.1f}% del total de crímenes."
+            f"La zona más peligrosa es **{worst_zone}** con {worst_count:,} incidentes registrados.\n\n"
+            f"Esto representa el {worst_count/len(df)*100:.1f}% del total de crímenes."
         )
     
     elif any(word in query_lower for word in ['hora', 'tiempo', 'cuando', 'cuándo']):
         if df.empty or 'TIME OCC' not in df.columns:
-            return "⚠️ No hay datos horarios disponibles."
+            return "No hay datos horarios disponibles."
         
         df['HOUR'] = (df['TIME OCC'] // 100) % 24
         hourly = df.groupby('HOUR').size().sort_values(ascending=False)
@@ -335,214 +389,127 @@ def process_local_query(query: str, df: pd.DataFrame, areas: list) -> str:
         peak_count = hourly.iloc[0]
         
         return (
-            f"🕐 La hora con más incidentes es las **{peak_hour}:00** con {peak_count:,} casos.\n\n"
-            f"⚠️ Se recomienda extremar precauciones durante este horario."
+            f"La hora con más incidentes es las **{peak_hour}:00** con {peak_count:,} casos.\n\n"
+            f"Se recomienda extremar precauciones durante este horario."
         )
     
     else:
         return (
-            "🤔 No pude entender tu pregunta. Intenta:\n\n"
+            "No pude entender tu pregunta. Intenta:\n\n"
             "- Usar comandos como `/stats`, `/zones`, `/top`\n"
             "- Hacer preguntas más específicas sobre zonas, horarios o tipos de crimen\n"
             "- Usar el botón de sugerencias en la barra lateral"
         )
 
 # --- PAGE: DASHBOARD ---
-if page == "📊 Dashboard":
+if page == "Dashboard":
     st.title("Estadísticas de Seguridad")
     st.markdown("Visión general de incidentes en Los Ángeles.")
     
     if not df_local.empty:
-        # --- FILTROS DINÁMICOS ---
-        st.sidebar.markdown("### 🔍 Filtros del Dashboard")
+        # --- SELECCIÓN DE VISTA ---
+        view_options = [
+            "Evolución Temporal", 
+            "Distribución Horaria", 
+            "Comparativa Zonas", 
+            "Top Crímenes", 
+            "Análisis Víctimas", 
+            "Mapa de Calor Interactivo"
+        ]
         
-        # Filtro de años
-        if 'YEAR' in df_local.columns:
-            years_available = sorted(df_local['YEAR'].dropna().unique())
-            selected_years = st.sidebar.multiselect(
-                "Años", 
-                years_available, 
-                default=years_available[-3:] if len(years_available) >= 3 else years_available
-            )
-            if selected_years:
-                df_filtered = df_local[df_local['YEAR'].isin(selected_years)]
-            else:
-                df_filtered = df_local
-        else:
-            df_filtered = df_local
+        selected_view = st.selectbox("Selecciona Visualización", view_options)
         
-        # Filtro de zonas
-        selected_areas = st.sidebar.multiselect(
-            "Zonas",
-            areas,
-            default=areas[:5] if len(areas) > 5 else areas
-        )
-        if selected_areas:
-            df_filtered = df_filtered[df_filtered['AREA NAME'].isin(selected_areas)]
+        # --- FILTROS (SOLO PARA MAPA) ---
+        df_filtered = df_local
         
-        # Filtro por tipo de crimen (si existe)
-        if 'Crm Cd Desc' in df_filtered.columns:
-            top_crimes = df_filtered['Crm Cd Desc'].value_counts().head(10).index.tolist()
-            selected_crimes = st.sidebar.multiselect(
-                "Tipos de Crimen",
-                top_crimes,
-                default=[]
-            )
-            if selected_crimes:
-                df_filtered = df_filtered[df_filtered['Crm Cd Desc'].isin(selected_crimes)]
-        
-        # --- MÉTRICAS PRINCIPALES ---
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.metric("Total Registros", f"{len(df_filtered):,}")
-        with c2:
-            st.metric("Zonas Activas", len(df_filtered['AREA NAME'].unique()))
-        with c3:
-            if 'YEAR' in df_filtered.columns:
-                st.metric("Años Analizados", len(df_filtered['YEAR'].unique()))
-            else:
-                st.metric("Dataset", "Completo")
-        with c4:
-            if 'Crm Cd Desc' in df_filtered.columns:
-                st.metric("Tipos de Crimen", len(df_filtered['Crm Cd Desc'].unique()))
-        
-        # --- GRÁFICOS ANALÍTICOS ---
-        st.markdown("---")
-        st.markdown("### 📈 Análisis Temporal y Geográfico")
-        
-        tab1, tab2, tab3, tab4 = st.tabs(["📅 Evolución Temporal", "🕐 Distribución Horaria", "🏙️ Comparativa Zonas", "📊 Top Crímenes"])
-        
-        with tab1:
-            # Evolución temporal de crímenes
-            if 'YEAR' in df_filtered.columns and 'DATE OCC' in df_filtered.columns:
-                df_temp = df_filtered.copy()
-                df_temp['YEAR_MONTH'] = pd.to_datetime(df_temp['DATE OCC']).dt.to_period('M').astype(str)
-                temporal_counts = df_temp.groupby('YEAR_MONTH').size().reset_index(name='count')
-                
-                chart_temporal = alt.Chart(temporal_counts).mark_line(point=True, strokeWidth=3).encode(
-                    x=alt.X('YEAR_MONTH:N', title='Mes', axis=alt.Axis(labelAngle=-45)),
-                    y=alt.Y('count:Q', title='Número de Incidentes'),
-                    tooltip=['YEAR_MONTH', 'count']
-                ).properties(height=400, title='Evolución Mensual de Incidentes')
-                
-                st.altair_chart(chart_temporal, use_container_width=True)
-                
-                # Estadísticas de tendencia
-                if len(temporal_counts) >= 2:
-                    last_count = temporal_counts.iloc[-1]['count']
-                    prev_count = temporal_counts.iloc[-2]['count']
-                    change_pct = ((last_count - prev_count) / prev_count * 100) if prev_count > 0 else 0
-                    
-                    col_t1, col_t2 = st.columns(2)
-                    with col_t1:
-                        st.metric("Último Mes", f"{int(last_count):,}", f"{change_pct:+.1f}%")
-                    with col_t2:
-                        avg_monthly = temporal_counts['count'].mean()
-                        st.metric("Promedio Mensual", f"{int(avg_monthly):,}")
-            else:
-                st.info("No hay datos temporales disponibles para análisis")
-        
-        with tab2:
-            # Distribución por hora del día
-            if 'TIME OCC' in df_filtered.columns:
-                df_hour = df_filtered.copy()
-                df_hour['HOUR'] = (df_hour['TIME OCC'] // 100) % 24
-                hourly_counts = df_hour.groupby('HOUR').size().reset_index(name='count')
-                
-                chart_hourly = alt.Chart(hourly_counts).mark_bar(color='steelblue').encode(
-                    x=alt.X('HOUR:O', title='Hora del Día', axis=alt.Axis(labelAngle=0)),
-                    y=alt.Y('count:Q', title='Número de Incidentes'),
-                    tooltip=['HOUR', 'count']
-                ).properties(height=400, title='Distribución de Incidentes por Hora')
-                
-                st.altair_chart(chart_hourly, use_container_width=True)
-                
-                # Identificar hora más peligrosa
-                most_dangerous_hour = hourly_counts.loc[hourly_counts['count'].idxmax()]
-                safest_hour = hourly_counts.loc[hourly_counts['count'].idxmin()]
-                
-                col_h1, col_h2 = st.columns(2)
-                with col_h1:
-                    st.error(f"⚠️ Hora más peligrosa: **{int(most_dangerous_hour['HOUR'])}:00** ({int(most_dangerous_hour['count']):,} incidentes)")
-                with col_h2:
-                    st.success(f"✅ Hora más segura: **{int(safest_hour['HOUR'])}:00** ({int(safest_hour['count']):,} incidentes)")
-            else:
-                st.info("No hay datos horarios disponibles")
-        
-        with tab3:
-            # Comparativa entre zonas
-            if 'AREA NAME' in df_filtered.columns:
-                zone_counts = df_filtered['AREA NAME'].value_counts().head(10).reset_index()
-                zone_counts.columns = ['Zone', 'Count']
-                
-                chart_zones = alt.Chart(zone_counts).mark_bar(color='coral').encode(
-                    x=alt.X('Count:Q', title='Número de Incidentes'),
-                    y=alt.Y('Zone:N', sort='-x', title='Zona'),
-                    tooltip=['Zone', 'Count']
-                ).properties(height=400, title='Top 10 Zonas con Más Incidentes')
-                
-                st.altair_chart(chart_zones, use_container_width=True)
-                
-                # Exportar datos de zonas
-                col_e1, col_e2 = st.columns([3, 1])
-                with col_e2:
-                    csv_zones = zone_counts.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="📥 Exportar CSV",
-                        data=csv_zones,
-                        file_name=f"zonas_peligrosas_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
-                    )
-            else:
-                st.info("No hay datos de zonas disponibles")
-        
-        with tab4:
-            # Top tipos de crímenes
-            if 'Crm Cd Desc' in df_filtered.columns:
-                crime_counts = df_filtered['Crm Cd Desc'].value_counts().head(15).reset_index()
-                crime_counts.columns = ['Crime_Type', 'Count']
-                
-                # Traducir nombres de crímenes para el gráfico
-                crime_counts['Crime_Type_ES'] = crime_counts['Crime_Type'].apply(translate_crime)
-                
-                chart_crimes = alt.Chart(crime_counts).mark_bar(color='darkred').encode(
-                    x=alt.X('Count:Q', title='Frecuencia'),
-                    y=alt.Y('Crime_Type_ES:N', sort='-x', title='Tipo de Crimen'),
-                    tooltip=[
-                        alt.Tooltip('Crime_Type_ES:N', title='Tipo de Crimen'),
-                        alt.Tooltip('Count:Q', title='Frecuencia')
-                    ]
-                ).properties(height=500, title='Top 15 Tipos de Crímenes Más Frecuentes')
-                
-                st.altair_chart(chart_crimes, use_container_width=True)
-                
-                # Estadísticas adicionales
-                st.markdown("#### 🔍 Detalles")
-                col_c1, col_c2, col_c3 = st.columns(3)
-                with col_c1:
-                    crime_name_es = translate_crime(crime_counts.iloc[0]['Crime_Type'])
-                    st.metric("Crimen Más Común", crime_name_es[:30] + "..." if len(crime_name_es) > 30 else crime_name_es)
-                with col_c2:
-                    st.metric("Frecuencia", f"{int(crime_counts.iloc[0]['Count']):,}")
-                with col_c3:
-                    pct_top = (crime_counts.iloc[0]['Count'] / len(df_filtered) * 100)
-                    st.metric("% del Total", f"{pct_top:.1f}%")
-            else:
-                st.info("No hay datos de tipos de crimen disponibles")
-        
-        # --- MAPA INTERACTIVO (Folium/OSM) ---
-        st.markdown("---")
-        st.markdown("### 🗺️ Mapa de Calor Interactivo")
-        try:
-            import folium
-            from streamlit_folium import st_folium
-            from folium.plugins import HeatMap
+        if selected_view == "Mapa de Calor Interactivo":
+            st.sidebar.markdown("### Filtros del Mapa")
             
-            # Crear mapa con datos filtrados (no cacheable debido a filtros dinámicos)
+            # Filtro de años
+            if 'YEAR' in df_local.columns:
+                years_available = sorted(df_local['YEAR'].dropna().unique())
+                selected_years = st.sidebar.multiselect("Años", years_available, default=[])
+                if selected_years:
+                    df_filtered = df_local[df_local['YEAR'].isin(selected_years)]
+            
+            # Filtro de zonas
+            selected_areas = st.sidebar.multiselect("Zonas", areas, default=[])
+            if selected_areas:
+                df_filtered = df_filtered[df_filtered['AREA NAME'].isin(selected_areas)]
+                
+            # Filtro por tipo de crimen
+            if 'Crm Cd Desc' in df_local.columns:
+                top_crimes = df_local['Crm Cd Desc'].value_counts().head(10).index.tolist()
+                crime_options = {translate_crime(c): c for c in top_crimes}
+                selected_crimes_es = st.sidebar.multiselect("Tipos de Crimen (Top 10)", list(crime_options.keys()), default=[])
+                selected_crimes = [crime_options[c] for c in selected_crimes_es]
+                if selected_crimes:
+                    df_filtered = df_filtered[df_filtered['Crm Cd Desc'].isin(selected_crimes)]
+        
+        # --- MÉTRICAS DE LA SELECCIÓN ACTUAL ---
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: st.metric("Total Registros", f"{len(df_filtered):,}")
+        with c2: st.metric("Zonas Activas", len(df_filtered['AREA NAME'].unique()))
+        with c3: 
+            if 'YEAR' in df_filtered.columns: st.metric("Años Analizados", len(df_filtered['YEAR'].unique()))
+            else: st.metric("Dataset", "Completo")
+        with c4:
+            if 'Crm Cd Desc' in df_filtered.columns: st.metric("Tipos de Crimen", len(df_filtered['Crm Cd Desc'].unique()))
+        
+        st.markdown("---")
+        
+        # --- VISUALIZACIÓN ---
+        img_dir = os.path.join("output", "figures")
+        
+        if selected_view == "Evolución Temporal":
+            img_path = os.path.join(img_dir, "02_evolucion_mensual.png")
+            if os.path.exists(img_path):
+                st.image(img_path, caption="Evolución mensual de incidentes (Histórico Global)", use_container_width=True)
+            else:
+                st.info("Imagen no encontrada.")
+                
+        elif selected_view == "Distribución Horaria":
+            img_path = os.path.join(img_dir, "05_distribution_hour.png")
+            if os.path.exists(img_path):
+                st.image(img_path, caption="Distribución de incidentes por hora (Histórico Global)", use_container_width=True)
+            else:
+                st.info("Imagen no encontrada.")
+                
+        elif selected_view == "Comparativa Zonas":
+            img_path = os.path.join(img_dir, "04_top_areas.png")
+            if os.path.exists(img_path):
+                st.image(img_path, caption="Incidentes por área (Histórico Global)", use_container_width=True)
+            else:
+                st.info("Imagen no encontrada.")
+                
+        elif selected_view == "Top Crímenes":
+            img_path = os.path.join(img_dir, "01_top_crimes.png")
+            if os.path.exists(img_path):
+                st.image(img_path, caption="Tipos de crímenes más frecuentes (Histórico Global)", use_container_width=True)
+            else:
+                st.info("Imagen no encontrada.")
+                
+        elif selected_view == "Análisis Víctimas":
+            c_vic1, c_vic2 = st.columns(2)
+            with c_vic1:
+                img_age = os.path.join(img_dir, "06_victim_age.png")
+                if os.path.exists(img_age):
+                    st.image(img_age, caption="Distribución por Edad", use_container_width=True)
+            with c_vic2:
+                img_sex = os.path.join(img_dir, "07_victim_sex.png")
+                if os.path.exists(img_sex):
+                    st.image(img_sex, caption="Distribución por Género", use_container_width=True)
+            
+            img_heat = os.path.join(img_dir, "09_heatmap_zona_sexo.png")
+            if os.path.exists(img_heat):
+                st.markdown("---")
+                st.image(img_heat, caption="Relación Zona vs Género", use_container_width=True)
+
+        elif selected_view == "Mapa de Calor Interactivo":
+            st.markdown("### Mapa de Calor Interactivo")
+            
             def create_dashboard_map(df_data, data_limit):
-                """Crea el mapa base con los datos filtrados."""
                 m = folium.Map(location=[34.05, -118.24], zoom_start=10, tiles='OpenStreetMap')
-                # Datos de calor
                 sample_data = df_data.sample(min(data_limit, len(df_data)), random_state=42) if len(df_data) > data_limit else df_data
                 heat_data = [[row['LAT'], row['LON']] for index, row in sample_data.iterrows()]
                 if heat_data:
@@ -550,41 +517,34 @@ if page == "📊 Dashboard":
                 return m
 
             m_dash = create_dashboard_map(df_filtered, 2000)
-            
-            # returned_objects=[] evita que el mapa recargue la página al interactuar
             st_folium(m_dash, width=1200, height=600, key="dashboard_map", returned_objects=[])
             st.caption("Mapa de Calor basado en OpenStreetMap: Las zonas rojas indican mayor concentración de incidentes.")
-            
-        except ImportError:
-            st.warning("Instalando soporte de mapas avanzados...")
-            st.map(df_local.sample(500)[["LAT", "LON"]].rename(columns={"LAT":"lat", "LON":"lon"}))
 
     else:
         st.warning("No hay datos locales disponibles para el mapa.")
 
 # --- PAGE: PREDICCIÓN ---
-elif page == "🧠 Predicción de Crimen":
+elif page == "Predicción de Crimen":
     st.title("Motor de Inteligencia Artificial")
     st.markdown("Introduce los parámetros para estimar la probabilidad de crimen.")
     
     with st.container():
         c1, c2 = st.columns(2)
         with c1:
-            area = st.selectbox("📍 Zona", areas if areas else ["Central"])
-            date = st.date_input("📅 Fecha")
-            hour = st.slider("⏰ Hora del día", 0, 23, 12, format="%d:00")
+            area = st.selectbox("Zona", areas if areas else ["Central"])
+            date = st.date_input("Fecha")
+            hour = st.slider("Hora del día", 0, 23, 12, format="%d:00")
         with c2:
-            age = st.slider("👤 Edad potencial víctima", 18, 90, 30)
+            age = st.slider("Edad potencial víctima", 18, 90, 30)
             sex = st.selectbox("Género", ["M", "F", "X"], format_func=lambda x: "Hombre" if x=="M" else "Mujer" if x=="F" else "Otro")
             
-            # Auto-loc
-            lat, lon = (34.05, -118.24)
+            # Auto-localización interna (no visible para el usuario)
+            lat, lon = (34.05, -118.24)  # Coordenadas por defecto de LA
             if not df_local.empty:
                 sample = df_local[df_local["AREA NAME"] == area].iloc[0]
                 lat, lon = sample["LAT"], sample["LON"]
-            st.info(f"Coords auto: {lat:.4f}, {lon:.4f}")
 
-    if st.button("🔮 Generar Predicción", use_container_width=True):
+    if st.button("Generar Predicción", use_container_width=True):
         payload = {
             "area": area,
             "lat": float(lat), "lon": float(lon),
@@ -598,7 +558,7 @@ elif page == "🧠 Predicción de Crimen":
             result = api_predict(payload, st.session_state["username"], st.session_state["password"])
         
         if result:
-            st.success("✅ Análisis Completado")
+            st.success("Análisis Completado")
             
             # Guardamos en Cache/Historial vinculando al usuario
             save_to_history(payload, result, area, st.session_state["username"])
@@ -611,15 +571,15 @@ elif page == "🧠 Predicción de Crimen":
             severity_conf = result.get('severity_confidence', 0)
             
             if severity == 'PELIGROSO':
-                st.error(f"🔴 **NIVEL DE PELIGRO: {severity}** (Confianza: {severity_conf:.1%})")
+                st.error(f"NIVEL DE PELIGRO: {severity} (Confianza: {severity_conf:.1%})")
                 st.markdown(
-                    "⚠️ **Este tipo de crimen implica riesgo personal directo.** "
+                    "Este tipo de crimen implica riesgo personal directo. "
                     "Se recomienda extremar precauciones y evitar la zona en el horario especificado."
                 )
             else:
-                st.success(f"🟢 **NIVEL DE PELIGRO: {severity}** (Confianza: {severity_conf:.1%})")
+                st.success(f"NIVEL DE PELIGRO: {severity} (Confianza: {severity_conf:.1%})")
                 st.markdown(
-                    "✅ Este tipo de crimen generalmente no implica contacto personal directo, "
+                    "Este tipo de crimen generalmente no implica contacto personal directo, "
                     "aunque se recomienda mantener precauciones habituales."
                 )
             
@@ -627,7 +587,7 @@ elif page == "🧠 Predicción de Crimen":
             col_res, col_chart = st.columns([1, 2])
             
             with col_res:
-                st.markdown("### 🎯 Predicción Principal")
+                st.markdown("### Predicción Principal")
                 
                 # Métrica con color según severidad
                 prediction_text = translate_crime(result['prediction'])
@@ -643,15 +603,15 @@ elif page == "🧠 Predicción de Crimen":
                 st.progress(confidence)
                 
                 if confidence > 0.7:
-                    st.info("💪 Alta confianza en la predicción")
+                    st.info("Alta confianza en la predicción")
                 elif confidence > 0.5:
-                    st.warning("⚠️ Confianza moderada")
+                    st.warning("Confianza moderada")
                 else:
-                    st.error("⚠️ Baja confianza - interpretar con cautela")
+                    st.error("Baja confianza - interpretar con cautela")
                 
             with col_chart:
                 if 'top_3' in result:
-                    st.markdown("### 📊 Top 3 Predicciones")
+                    st.markdown("### Top 3 Predicciones")
                     
                     # Traducir los crímenes del top 3
                     top3_translated = [{
@@ -674,7 +634,7 @@ elif page == "🧠 Predicción de Crimen":
                     st.altair_chart(chart, use_container_width=True)
                     
                     # Tabla detallada
-                    with st.expander("📋 Ver tabla detallada"):
+                    with st.expander("Ver tabla detallada"):
                         top3_df['Probabilidad'] = top3_df['probabilitat'].apply(lambda x: f"{x:.2%}")
                         st.dataframe(
                             top3_df[['crim', 'Probabilidad']].rename(columns={'crim': 'Tipo de Crimen'}),
@@ -683,20 +643,20 @@ elif page == "🧠 Predicción de Crimen":
             
             # Información contextual adicional
             st.markdown("---")
-            st.markdown("### 📍 Contexto de la Predicción")
+            st.markdown("### Contexto de la Predicción")
             
             col_c1, col_c2, col_c3, col_c4 = st.columns(4)
             with col_c1:
-                st.metric("📅 Fecha", date.strftime("%d/%m/%Y"))
+                st.metric("Fecha", date.strftime("%d/%m/%Y"))
             with col_c2:
-                st.metric("🕐 Hora", f"{hour}:00")
+                st.metric("Hora", f"{hour}:00")
             with col_c3:
-                st.metric("🌍 Zona", area)
+                st.metric("Zona", area)
             with col_c4:
-                st.metric("👤 Perfil", f"{sex}, {age} años")
+                st.metric("Perfil", f"{sex}, {age} años")
             
             # Recomendaciones personalizadas
-            st.markdown("### 💡 Recomendaciones")
+            st.markdown("### Recomendaciones")
             
             recommendations = []
             
@@ -721,12 +681,12 @@ elif page == "🧠 Predicción de Crimen":
                 st.markdown(f"- {rec}")
             
             # Botón para nueva predicción
-            if st.button("🔄 Realizar Nueva Predicción"):
+            if st.button("Realizar Nueva Predicción"):
                 st.rerun()
 
 # --- PAGE: HISTORIAL ---
-elif page == "📜 Historial / Cache":
-    st.title("📜 Historial de Predicciones")
+elif page == "Historial / Cache":
+    st.title("Historial de Predicciones")
     st.markdown("Registro de todas las consultas realizadas con funciones de filtrado y exportación.")
     
     history = load_history()
@@ -736,7 +696,7 @@ elif page == "📜 Historial / Cache":
     
     if user_history:
         # Estadísticas del historial
-        st.markdown("### 📊 Resumen de tu Actividad")
+        st.markdown("### Resumen de tu Actividad")
         col_h1, col_h2, col_h3, col_h4 = st.columns(4)
         
         with col_h1:
@@ -759,7 +719,7 @@ elif page == "📜 Historial / Cache":
         
         # Opciones de filtrado
         st.markdown("---")
-        st.markdown("### 🔍 Filtrar Historial")
+        st.markdown("### Filtrar Historial")
         
         col_f1, col_f2, col_f3 = st.columns(3)
         
@@ -815,7 +775,7 @@ elif page == "📜 Historial / Cache":
                 csv = df_export.to_csv(index=False).encode('utf-8')
                 
                 st.download_button(
-                    label="📥 Exportar CSV",
+                    label="Exportar CSV",
                     data=csv,
                     file_name=f"historial_{st.session_state['username']}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv"
@@ -825,7 +785,7 @@ elif page == "📜 Historial / Cache":
             # Exportar a JSON
             json_export = json.dumps(filtered_history, indent=2, ensure_ascii=False).encode('utf-8')
             st.download_button(
-                label="📥 Exportar JSON",
+                label="Exportar JSON",
                 data=json_export,
                 file_name=f"historial_{st.session_state['username']}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                 mime="application/json"
@@ -833,22 +793,22 @@ elif page == "📜 Historial / Cache":
         
         # Mostrar historial
         st.markdown("---")
-        st.markdown("### 📋 Detalle de Consultas")
+        st.markdown("### Detalle de Consultas")
         
         for idx, item in enumerate(filtered_history):
             severity = item.get('result', {}).get('severity', 'DESCONOCIDO')
-            severity_emoji = "🔴" if severity == "PELIGROSO" else "🟢" if severity == "SEGURO" else "⚪"
+            severity_mark = "PELIGROSO" if severity == "PELIGROSO" else "SEGURO" if severity == "SEGURO" else "OTRO"
             
-            with st.expander(f"{severity_emoji} {item.get('timestamp', 'N/A')} - {item.get('area', 'Unknown')} ({idx+1}/{len(filtered_history)})"):
+            with st.expander(f"{severity_mark} {item.get('timestamp', 'N/A')} - {item.get('area', 'Unknown')} ({idx+1}/{len(filtered_history)})"):
                 col_d1, col_d2 = st.columns(2)
                 
                 with col_d1:
-                    st.markdown("**📥 Parámetros de Entrada:**")
+                    st.markdown("**Parámetros de Entrada:**")
                     input_data = item.get('input', {})
                     st.json(input_data)
                 
                 with col_d2:
-                    st.markdown("**📤 Resultado:**")
+                    st.markdown("**Resultado:**")
                     result = item.get('result', {})
                     
                     pred = translate_crime(result.get('prediction', 'N/A'))
@@ -866,12 +826,12 @@ elif page == "📜 Historial / Cache":
                             st.markdown(f"{i}. {translate_crime(crime['crim'])} - {crime['probabilitat']:.1%}")
     
     else:
-        st.info("🔍 No tienes predicciones guardadas en tu historial.")
-        st.markdown("Realiza predicciones en la sección **🧠 Predicción de Crimen** para ver tu historial aquí.")
+        st.info("No tienes predicciones guardadas en tu historial.")
+        st.markdown("Realiza predicciones en la sección **Predicción de Crimen** para ver tu historial aquí.")
 
 # --- PAGE: CHATBOT ---
-elif page == "💬 Asistente IA":
-    st.title("🤖 Asistente Virtual Inteligente")
+elif page == "Asistente IA":
+    st.title("Asistente Virtual Inteligente")
     st.markdown("Pregunta sobre estadísticas, zonas peligrosas o tendencias. Usa comandos para funciones especiales.")
     
     # Inicializar estado del chatbot
@@ -880,16 +840,16 @@ elif page == "💬 Asistente IA":
         # Mensaje de bienvenida
         welcome_msg = (
             "¡Hola! Soy tu asistente de análisis criminal conectado a la API del sistema RAIA.\n\n"
-            "🔹 **Puedo ayudarte con:**\n"
+            "Puedo ayudarte con:\n"
             "- Análisis temporal de criminalidad\n"
             "- Comparación entre zonas\n"
             "- Consultas sobre intervalos horarios\n"
             "- Tendencias y estadísticas\n\n"
-            "💬 Escribe tu pregunta en lenguaje natural, por ejemplo:\n"
+            "Escribe tu pregunta en lenguaje natural, por ejemplo:\n"
             "- '¿Cuál es la tendencia de robos este año?'\n"
             "- 'Compara Central versus Hollywood'\n"
             "- 'Crímenes entre las 20 y las 23'\n\n"
-            "🔧 También puedes usar comandos específicos si prefieres."
+            "También puedes usar comandos específicos si prefieres."
         )
         st.session_state["messages"].append({"role": "assistant", "content": welcome_msg})
     
@@ -899,15 +859,15 @@ elif page == "💬 Asistente IA":
             st.markdown(msg["content"])
     
     # Barra lateral con información contextual
-    st.sidebar.markdown("### 📊 Contexto del Chatbot")
+    st.sidebar.markdown("### Contexto del Chatbot")
     st.sidebar.info(f"Mensajes en conversación: {len(st.session_state['messages'])}")
     
-    if st.sidebar.button("🗑️ Limpiar Conversación"):
+    if st.sidebar.button("Limpiar Conversación"):
         st.session_state["messages"] = []
         st.rerun()
     
     # Sugerencias rápidas
-    st.sidebar.markdown("### 💡 Sugerencias Rápidas")
+    st.sidebar.markdown("### Sugerencias Rápidas")
     suggestions = [
         "¿Cuál es la zona más peligrosa?",
         "Muestra tendencias de este año",
@@ -922,7 +882,7 @@ elif page == "💬 Asistente IA":
             st.rerun()
     
     # Input del usuario
-    if prompt := st.chat_input("✏️ Escribe tu pregunta o comando..."):
+    if prompt := st.chat_input("Escribe tu pregunta o comando..."):
         # Añadir mensaje del usuario
         st.session_state["messages"].append({"role": "user", "content": prompt})
         with st.chat_message("user"):
@@ -930,13 +890,13 @@ elif page == "💬 Asistente IA":
         
         # Procesar respuesta - TODO pasa por la API
         with st.chat_message("assistant"):
-            with st.spinner("🧠 Consultando con la API..."):
+            with st.spinner("Consultando con la API..."):
                 # Siempre llamar a la API (maneja comandos y consultas naturales)
                 response = api_chat(prompt, st.session_state["username"], st.session_state["password"])
                 
                 # Si hay error de conexión, mostrar mensaje claro
                 if "Error" in response:
-                    response = "❌ Error de conexión con la API. Asegúrate de que el servidor backend esté ejecutándose en `http://127.0.0.1:8000`"
+                    response = "Error de conexión con la API. Asegúrate de que el servidor backend esté ejecutándose en `http://127.0.0.1:8000`"
                 
                 st.markdown(response)
         
@@ -944,19 +904,11 @@ elif page == "💬 Asistente IA":
         st.session_state["messages"].append({"role": "assistant", "content": response})
 
 # --- PAGE: RUTA SEGURA (OSM) ---
-elif page == "🗺️ Navegador Seguro (OSM)":
-    st.title("🗺️ Navegador de Rutas Seguras Avanzado")
+elif page == "Navegador Seguro (OSM)":
+    st.title("Navegador de Rutas Seguras Avanzado")
     st.markdown("Planifica tu desplazamiento evitando zonas conflictivas con análisis predictivo de IA.")
 
-    # --- IMPORTS LOCALES PARA MAPAS ---
-    try:
-        import folium
-        from streamlit_folium import st_folium
-        from geopy.geocoders import Nominatim
-        from folium.plugins import HeatMap
-    except ImportError:
-        st.error("⚠️ Faltan librerías. Por favor instala: `pip install folium streamlit-folium geopy`")
-        st.stop()
+    # --- IMPORTS LOCALES PARA MAPAS (Ya incluidos globalmente) ---
     
     # Inicializar caché de geocodificación en session_state
     if "geocode_cache" not in st.session_state:
@@ -974,7 +926,7 @@ elif page == "🗺️ Navegador Seguro (OSM)":
         
         # Verificar caché
         if address_key in st.session_state["geocode_cache"]:
-            st.info(f"✅ Usando ubicación en caché: {address}")
+            st.info(f"Usando ubicación en caché: {address}")
             return st.session_state["geocode_cache"][address_key]
         
         # Geocoding nuevo - SIEMPRE en Los Angeles automáticamente
@@ -993,23 +945,45 @@ elif page == "🗺️ Navegador Seguro (OSM)":
                 if (33.7 <= lat <= 34.35) and (-118.7 <= lon <= -118.0):
                     coords = (lat, lon)
                     st.session_state["geocode_cache"][address_key] = coords
-                    st.success(f"📍 Ubicación encontrada: {loc.address}")
+                    st.success(f"Ubicación encontrada: {loc.address}")
                     return coords
                 else:
-                    st.warning(f"⚠️ '{address}' está fuera de Los Ángeles. Ubicación: ({lat:.4f}, {lon:.4f})")
+                    st.warning(f"'{address}' está fuera de Los Ángeles. Ubicación: ({lat:.4f}, {lon:.4f})")
                     return None
             
             # Si no encuentra nada
-            st.error(f"❌ No se encontró '{address}' en Los Ángeles. Intenta con un nombre más específico.")
+            st.error(f"No se encontró '{address}' en Los Ángeles. Intenta con un nombre más específico.")
             return None
             
         except Exception as e:
             st.error(f"Error de geocodificación: {e}")
             return None
 
+    def get_nearest_area(lat, lon):
+        """Determina el área (barrio) más cercana basada en centroides históricos para contexto del modelo"""
+        if df_local.empty: return "Central"
+        
+        # Calcular y cachear centroides si no existen
+        if "area_centroids" not in st.session_state:
+            try:
+                # Agrupar por nombre de área y sacar promedio de lat/lon
+                centroids = df_local.groupby("AREA NAME")[["LAT", "LON"]].mean().reset_index()
+                st.session_state["area_centroids"] = centroids
+            except:
+                return "Central"
+        
+        centroids = st.session_state["area_centroids"]
+        if centroids.empty: return "Central"
+        
+        # Encontrar el más cercano (distancia Euclidiana simple es suficiente)
+        # (lat-lat)^2 + (lon-lon)^2
+        # Vectorizado para velocidad
+        distances = (centroids["LAT"] - lat)**2 + (centroids["LON"] - lon)**2
+        closest_idx = distances.idxmin()
+        return centroids.iloc[closest_idx]["AREA NAME"]
+
     def identify_dangerous_zones(start_coords, end_coords, travel_date, travel_hour, username, password, user_age, user_sex):
         """Identifica zonas peligrosas en el área entre origen y destino usando predicciones ML"""
-        import math
         
         dangerous_zones = []
         
@@ -1021,23 +995,23 @@ elif page == "🗺️ Navegador Seguro (OSM)":
         LA_LON_MIN, LA_LON_MAX = -118.7, -118.0
         
         if not ((LA_LAT_MIN <= lat1 <= LA_LAT_MAX) and (LA_LON_MIN <= lon1 <= LA_LON_MAX)):
-            st.error(f"❌ El origen ({lat1:.4f}, {lon1:.4f}) está fuera de Los Ángeles")
+            st.error(f"El origen ({lat1:.4f}, {lon1:.4f}) está fuera de Los Ángeles")
             return []
         
         if not ((LA_LAT_MIN <= lat2 <= LA_LAT_MAX) and (LA_LON_MIN <= lon2 <= LA_LON_MAX)):
-            st.error(f"❌ El destino ({lat2:.4f}, {lon2:.4f}) está fuera de Los Ángeles")
+            st.error(f"El destino ({lat2:.4f}, {lon2:.4f}) está fuera de Los Ángeles")
             return []
         
         # Calcular distancia de la ruta para adaptar densidad del grid
         route_distance = math.sqrt((lat2 - lat1)**2 + (lon2 - lon1)**2)
         
-        # Grid OPTIMIZADO: Reducido drásticamente para velocidad
+        # Grid MEJORADO: Aumentamos densidad para mejor detección
         if route_distance > 0.15:  # Ruta larga (>17km aprox)
-            grid_size = 6  # 36 puntos - rápido
+            grid_size = 10  # 100 puntos - más detalle
         elif route_distance > 0.08:  # Ruta media (>9km)
-            grid_size = 5  # 25 puntos - muy rápido
+            grid_size = 8   # 64 puntos
         else:  # Ruta corta
-            grid_size = 4  # 16 puntos - ultra rápido
+            grid_size = 6   # 36 puntos
         
         # Área de búsqueda REDUCIDA (20% de margen) CON LÍMITES DE LA
         min_lat = max(LA_LAT_MIN, min(lat1, lat2) - abs(lat2 - lat1) * 0.20)
@@ -1049,7 +1023,7 @@ elif page == "🗺️ Navegador Seguro (OSM)":
         lon_step = (max_lon - min_lon) / grid_size
         
         total_points = grid_size * grid_size
-        st.info(f"🔍 Escaneando {total_points} puntos estratégicos en Los Ángeles...")
+        st.info(f"Escaneando {total_points} puntos estratégicos en Los Ángeles...")
         progress_bar = st.progress(0, text="Analizando área...")
         
         analyzed_points = 0
@@ -1061,7 +1035,7 @@ elif page == "🗺️ Navegador Seguro (OSM)":
                 lon = min_lon + j * lon_step
                 
                 payload = {
-                    "area": "Central",
+                    "area": get_nearest_area(lat, lon),
                     "lat": lat,
                     "lon": lon,
                     "date_year": travel_date.year,
@@ -1078,8 +1052,8 @@ elif page == "🗺️ Navegador Seguro (OSM)":
                         severity = result.get('severity', 'PELIGROSO')
                         severity_conf = result.get('severity_confidence', 0)
                         
-                        # Umbral más permisivo para capturar más zonas
-                        if severity == "PELIGROSO" and severity_conf > 0.60:
+                        # Umbral sincronizado con el análisis de ruta (0.55)
+                        if severity == "PELIGROSO" and severity_conf > 0.55:
                             dangerous_zones.append({
                                 "lat": lat,
                                 "lon": lon,
@@ -1092,20 +1066,19 @@ elif page == "🗺️ Navegador Seguro (OSM)":
                 
                 analyzed_points += 1
                 progress_bar.progress(analyzed_points / total_points, 
-                                    text=f"🔍 {analyzed_points}/{total_points} • {dangerous_count} zonas")
+                                    text=f"{analyzed_points}/{total_points} • {dangerous_count} zonas")
         
         progress_bar.empty()
         
         if len(dangerous_zones) > 0:
-            st.success(f"✅ Detectadas {len(dangerous_zones)} zonas peligrosas - Generando rutas...")
+            st.success(f"Detectadas {len(dangerous_zones)} zonas peligrosas - Generando rutas...")
         else:
-            st.success(f"✅ Área segura - Generando rutas óptimas...")
+            st.success(f"Área segura - Generando rutas óptimas...")
         
         return dangerous_zones
 
     def calculate_threat_score(waypoint_lat, waypoint_lon, dangerous_zones):
         """Calcula score de amenaza de un punto basándose en cercanía y severidad de zonas peligrosas"""
-        import math
         
         if not dangerous_zones:
             return 0.0
@@ -1113,33 +1086,38 @@ elif page == "🗺️ Navegador Seguro (OSM)":
         total_threat = 0.0
         
         for zone in dangerous_zones:
-            # Distancia euclidiana al punto
             distance = math.sqrt((waypoint_lat - zone['lat'])**2 + (waypoint_lon - zone['lon'])**2)
             
-            # Severidad ponderada (0.65 a 1.0 → normalizado a 0-1)
+            # Normalizar severidad (0.65 a 1.0 -> 0-1)
             severity_normalized = (zone['severity_conf'] - 0.65) / 0.35
             
-            # Amenaza inversamente proporcional a distancia, ponderada por severidad
-            # Zonas muy cercanas (< 0.01 ≈ 1km) y muy severas son muy peligrosas
-            if distance < 0.0001:  # Evitar división por cero
+            # Amenaza: Severidad ponderada por inversa de distancia
+            if distance < 0.0001: 
                 distance = 0.0001
             
-            # Fórmula: Amenaza = Severidad / Distancia^2 (decae rápidamente con distancia)
             threat = (severity_normalized * 10) / (distance ** 1.5)
             total_threat += threat
         
         return total_threat
     
-    def get_osrm_route_intelligent(start_coords, end_coords, dangerous_zones):
-        """Genera rutas EVITANDO zonas peligrosas con algoritmo de optimización por severidad"""
-        import math
+    def get_osrm_route_intelligent(start_coords, end_coords, dangerous_zones, transport_mode="Auto"):
+        """Genera rutas optimizadas evitando zonas de riesgo detectadas."""
+        
+        # Selección de endpoint según transporte
+        if transport_mode == "Caminando":
+            base_url = "https://routing.openstreetmap.de/routed-foot/route/v1/foot"
+        elif transport_mode == "Bicicleta":
+            base_url = "https://routing.openstreetmap.de/routed-bike/route/v1/bike"
+        else:
+            base_url = "http://router.project-osrm.org/route/v1/driving"
+            
+        coords_str = f"{start_coords[1]},{start_coords[0]};{end_coords[1]},{end_coords[0]}"
+        url_direct = f"{base_url}/{coords_str}?overview=full&geometries=geojson&alternatives=true"
         
         all_routes = []
         
-        # PASO 1: Ruta directa (baseline)
-        url_direct = f"http://router.project-osrm.org/route/v1/driving/{start_coords[1]},{start_coords[0]};{end_coords[1]},{end_coords[0]}?overview=full&geometries=geojson&alternatives=true"
         try:
-            r = requests.get(url_direct, timeout=5)
+            r = requests.get(url_direct, timeout=8)
             if r.status_code == 200:
                 data = r.json()
                 if "routes" in data:
@@ -1147,7 +1125,7 @@ elif page == "🗺️ Navegador Seguro (OSM)":
         except:
             pass
         
-        # PASO 2: Algoritmo inteligente con ponderación por severidad
+        # Generación de rutas alternativas si se detectan riesgos
         if dangerous_zones and len(all_routes) < 6:
             lat1, lon1 = start_coords
             lat2, lon2 = end_coords
@@ -1160,54 +1138,36 @@ elif page == "🗺️ Navegador Seguro (OSM)":
                 dx = (lat2 - lat1) / dist
                 dy = (lon2 - lon1) / dist
                 
-                # Vector perpendicular
                 perp_dx = -dy
                 perp_dy = dx
                 
-                # NUEVA LÓGICA: Calcular score de amenaza para cada lado
-                # En lugar de contar zonas, ponderamos por severidad y distancia
-                
-                # Probar varios waypoints y elegir los de menor amenaza
                 candidate_waypoints = []
                 
-                # Generar candidatos en ambos lados con diferentes desvíos
+                # Calcular waypoints estratégicos para evasión
                 for side in [-1, 1]:
                     for deviation in [0.10, 0.15, 0.20, 0.25, 0.30]:
                         offset = dist * deviation
                         wp_lat = mid_lat + (perp_dx * offset * side)
                         wp_lon = mid_lon + (perp_dy * offset * side)
                         
-                        # Calcular score de amenaza para este waypoint
                         threat = calculate_threat_score(wp_lat, wp_lon, dangerous_zones)
                         
                         candidate_waypoints.append({
                             'lat': wp_lat,
                             'lon': wp_lon,
-                            'threat': threat,
-                            'deviation': deviation,
-                            'side': side
+                            'threat': threat
                         })
                 
-                # Ordenar por menor amenaza
                 candidate_waypoints.sort(key=lambda x: x['threat'])
-                
-                # Mostrar el proceso de optimización
-                if len(candidate_waypoints) > 0:
-                    safest = candidate_waypoints[0]['threat']
-                    worst = candidate_waypoints[-1]['threat']
-                    if worst > 0:
-                        improvement = ((worst - safest) / worst * 100)
-                        st.info(f"🎯 Optimización: Waypoint más seguro tiene {improvement:.0f}% menos amenaza que el peor")
-                
-                # Tomar los 4 mejores waypoints (más seguros)
                 best_waypoints = candidate_waypoints[:4]
                 
-                # Generar rutas para los mejores waypoints
+                # Generar rutas para los mejores waypoints USANDO EL SERVIDOR CORRECTO
                 for wp in best_waypoints:
-                    url_safe = f"http://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{wp['lon']},{wp['lat']};{lon2},{lat2}?overview=full&geometries=geojson"
+                    wp_coords_str = f"{lon1},{lat1};{wp['lon']},{wp['lat']};{lon2},{lat2}"
+                    url_safe = f"{base_url}/{wp_coords_str}?overview=full&geometries=geojson"
                     
                     try:
-                        r = requests.get(url_safe, timeout=5)
+                        r = requests.get(url_safe, timeout=8)
                         if r.status_code == 200:
                             data = r.json()
                             if "routes" in data and len(data["routes"]) > 0:
@@ -1249,7 +1209,11 @@ elif page == "🗺️ Navegador Seguro (OSM)":
             if len(nearby) > 5:
                 risk_points.append({
                     "lat": lat, "lon": lon, 
-                    "count": len(nearby), "desc": nearby['Crm Cd Desc'].mode()[0] if not nearby.empty else "Varios"
+                    "count": len(nearby), 
+                    "desc": translate_crime(nearby['Crm Cd Desc'].mode()[0]) if not nearby.empty else "Varios",
+                    "crime_type": translate_crime(nearby['Crm Cd Desc'].mode()[0]) if not nearby.empty else "Varios",
+                    "is_dangerous": True,
+                    "intensity": 1  # Asumimos riesgo moderado
                 })
         return risk_points
     
@@ -1272,7 +1236,7 @@ elif page == "🗺️ Navegador Seguro (OSM)":
             lon, lat = point
             
             payload = {
-                "area": "Central",
+                "area": get_nearest_area(lat, lon),
                 "lat": lat,
                 "lon": lon,
                 "date_year": travel_date.year,
@@ -1306,7 +1270,7 @@ elif page == "🗺️ Navegador Seguro (OSM)":
                             "lat": lat,
                             "lon": lon,
                             "count": int(confidence * 100),
-                            "desc": f"🔴 {prediction_type} ({confidence:.0%})",
+                            "desc": f"[RIESGO] {prediction_type} ({confidence:.0%})",
                             "is_dangerous": True,
                             "intensity": intensity,
                             "severity_conf": severity_conf,
@@ -1320,7 +1284,7 @@ elif page == "🗺️ Navegador Seguro (OSM)":
 
 
     # --- INTERFAZ ---
-    st.info("💡 **Tip**: Escribe lugares de Los Ángeles como 'Union Station', 'Hollywood Boulevard', 'Venice Beach', 'LAX Airport', 'Staples Center', etc.")
+    st.info("Tip: Escribe lugares de Los Ángeles como 'Union Station', 'Hollywood Boulevard', 'Venice Beach', 'LAX Airport', 'Staples Center', etc.")
     
     c1, c2 = st.columns(2)
     with c1:
@@ -1329,7 +1293,7 @@ elif page == "🗺️ Navegador Seguro (OSM)":
         dest = st.text_input("Destino", placeholder="Ej: Hollywood Boulevard")
     
     # Selector de fecha y hora del viaje
-    st.markdown("### ⏰ ¿Cuándo planeas viajar?")
+    st.markdown("### ¿Cuándo planeas viajar?")
     col_date, col_hour = st.columns([2, 1])
     with col_date:
         travel_date = st.date_input("Fecha del viaje", value=datetime.date.today())
@@ -1337,30 +1301,31 @@ elif page == "🗺️ Navegador Seguro (OSM)":
         travel_hour = st.slider("Hora", 0, 23, datetime.datetime.now().hour, format="%d:00")
     
     # NUEVO: Perfil del viajero y modo de transporte
-    st.markdown("### 👤 Configuración del Viaje")
+    st.markdown("### Configuración del Viaje")
     col_age, col_sex, col_mode, col_transport = st.columns(4)
     with col_age:
         user_age = st.number_input("Edad", min_value=10, max_value=100, value=30, step=1)
     with col_sex:
         user_sex = st.selectbox("Sexo", options=["M", "F", "X"], 
-                               format_func=lambda x: {"M": "👨 Masculino", "F": "👩 Femenino", "X": "⚧ Otro"}[x])
+                               format_func=lambda x: {"M": "Masculino", "F": "Femenino", "X": "Otro"}[x])
     with col_mode:
-        use_ml = st.checkbox("🧠 Usar IA", value=True, 
+        use_ml = st.checkbox("Usar IA", value=True, 
                             help="Predicciones ML personalizadas")
     with col_transport:
-        transport_mode = st.selectbox("🚗 Transporte", 
+        transport_mode = st.selectbox("Transporte", 
                                       options=["Auto", "Caminando", "Bicicleta"],
-                                      help="Modo de transporte (aproximado)")
+                                      help="Modo de transporte (aproximado)",
+                                      key="transport_mode_selector")
     
     # Mostrar caché de geocodificación
     if st.session_state.get("geocode_cache"):
-        with st.expander("📍 Ubicaciones en Caché"):
+        with st.expander("Ubicaciones en Caché"):
             cache_df = pd.DataFrame([
                 {"Dirección": addr, "Lat": coords[0], "Lon": coords[1]}
                 for addr, coords in st.session_state["geocode_cache"].items()
             ])
             st.dataframe(cache_df, use_container_width=True)
-            if st.button("🗑️ Limpiar Caché de Geocodificación"):
+            if st.button("Limpiar Caché de Geocodificación"):
                 st.session_state["geocode_cache"] = {}
                 st.success("Caché limpiado")
 
@@ -1369,33 +1334,27 @@ elif page == "🗺️ Navegador Seguro (OSM)":
     if "route_data" not in st.session_state:
         st.session_state["route_data"] = None
 
-    if st.button("🗺️ Calcular Ruta Segura"):
+    if st.button("Calcular Ruta Segura"):
         if not origin or not dest:
             st.warning("Introduce ambas direcciones.")
         else:
-            with st.spinner("🧠 Analizando área con IA (optimizado para velocidad)..."):
+            with st.spinner(f"Analizando ruta para '{transport_mode}' con IA..."):
                 start = get_lat_lon_cached(origin)
                 end = get_lat_lon_cached(dest)
                 
                 if start and end:
-                    # PASO 1: Identificar zonas peligrosas con IA (NUEVO ENFOQUE)
                     dangerous_zones = identify_dangerous_zones(
                         start, end, travel_date, travel_hour,
                         st.session_state["username"], st.session_state["password"],
                         user_age, user_sex
                     )
                     
-                    # PASO 2: Generar rutas inteligentes que eviten esas zonas
-                    st.info(f"🗺️ Generando rutas optimizadas...")
-                    routes_list = get_osrm_route_intelligent(start, end, dangerous_zones)
+                    st.info(f"Calculando rutas óptimas para {transport_mode}...")
+                    routes_list = get_osrm_route_intelligent(start, end, dangerous_zones, transport_mode)
                     
                     if routes_list:
-                        # --- ANÁLISIS FINO DE CADA RUTA ---
                         analyzed_routes = []
-                        
-                        # Análisis rápido de rutas ya optimizadas
-                        progress_text = f"📊 Analizando {len(routes_list)} rutas..."
-                        progress_bar = st.progress(0, text=progress_text)
+                        progress_bar = st.progress(0, text="Analizando seguridad...")
                         
                         for idx, route_obj in enumerate(routes_list):
                             geo = route_obj["geometry"]
@@ -1411,7 +1370,6 @@ elif page == "🗺️ Navegador Seguro (OSM)":
                             
                             curr_count = len(curr_risks)
                             
-                            # Extraemos datos de OSRM (duración en segundos, distancia en metros)
                             duration = route_obj.get("duration", float('inf'))
                             distance = route_obj.get("distance", float('inf'))
                             
@@ -1424,35 +1382,22 @@ elif page == "🗺️ Navegador Seguro (OSM)":
                                 "distance": distance
                             })
                             
-                            # Actualizar barra de progreso
-                            progress_bar.progress((idx + 1) / len(routes_list), 
-                                                text=f"Ruta {idx+1}/{len(routes_list)}: {curr_count} riesgos detectados")
+                            progress_bar.progress((idx + 1) / len(routes_list))
                         
-                        progress_bar.empty()  # Limpiamos la barra
+                        progress_bar.empty()
                         
-                        # Ordenamos: Primero por menos riesgos, luego por menor duración
                         analyzed_routes_sorted = sorted(
                             analyzed_routes, 
                             key=lambda r: (r["count"], r["duration"])
                         )
                         
-                        # La primera del ranking ordenado es la mejor
                         best_route = analyzed_routes_sorted[0]
                         best_idx = best_route["id"]
-                        min_risk_count = best_route["count"]
                         
-                        # Estadísticas comparativas
-                        worst_risk_count = analyzed_routes_sorted[-1]["count"]
-                        avg_risk_count = sum(r["count"] for r in analyzed_routes) / len(analyzed_routes)
-                        
-                        # Mensaje inteligente según resultados
-                        if min_risk_count == 0:
-                            st.success(f"🎉 ¡Excelente! Ruta #{best_idx+1} completamente limpia. Se analizaron {len(routes_list)} alternativas.")
-                        elif min_risk_count < avg_risk_count:
-                            improvement = ((avg_risk_count - min_risk_count) / avg_risk_count * 100)
-                            st.success(f"✅ Ruta #{best_idx+1} recomendada: {min_risk_count} zonas de riesgo ({improvement:.0f}% mejor que el promedio)")
+                        if best_route["count"] == 0:
+                            st.success(f"Ruta #{best_idx+1} recomendada (Sin riesgos detectados)")
                         else:
-                            st.warning(f"⚠️ Ruta #{best_idx+1} es la menos mala: {min_risk_count} zonas de riesgo (de {len(routes_list)} opciones analizadas)")
+                            st.warning(f"Ruta #{best_idx+1} recomendada con precaución ({best_route['count']} zonas de riesgo)")
 
 
                         # Guardamos TODAS las rutas en sesión junto con datos del viaje
@@ -1485,29 +1430,34 @@ elif page == "🗺️ Navegador Seguro (OSM)":
     if st.session_state["route_data"]:
         data = st.session_state["route_data"]
         
+        # Verificar coherencia de datos (¿Ha cambiado el usuario algo sin recalcular?)
+        current_params_match = (
+            data.get("transport_mode") == transport_mode and
+            data.get("origin_name") == origin and
+            data.get("dest_name") == dest
+        )
+        
+        if not current_params_match:
+            st.warning("**Cambios detectados:** Los parámetros de búsqueda (transporte, origen o destino) han cambiado. Haz clic en **'Calcular Ruta Segura'** para actualizar el mapa.")
+
+        
         def create_route_map(route_info):
             start, end = route_info["start"], route_info["end"]
             routes = route_info["routes"]
             best_idx = route_info["best_idx"]
             dangerous_zones = route_info.get("dangerous_zones", [])
+            transport_mode = route_info.get("transport_mode", "Auto")
             
             # Crear mapa
             m = folium.Map(location=[(start[0]+end[0])/2, (start[1]+end[1])/2], zoom_start=13)
             
-            # 0. Marcar zonas peligrosas detectadas en el escaneo inicial
-            for zone in dangerous_zones:
-                folium.Marker(
-                    location=[zone['lat'], zone['lon']],
-                    icon=folium.Icon(color='red', icon='times', prefix='fa'),
-                    popup=f"⚠️ ZONA PELIGROSA<br>{zone['crime_type']}<br>Confianza: {zone['severity_conf']*100:.0f}%",
-                    tooltip="Zona peligrosa detectada"
-                ).add_to(m)
+            # 0. Configuración de capas
             
             # 1. Pintar TODAS las rutas con gradiente de color según peligro
             # Calculamos el rango de riesgos para normalizar colores
             risk_counts = [r["count"] for r in routes]
-            min_risk = min(risk_counts)
-            max_risk = max(risk_counts)
+            min_risk = min(risk_counts) if risk_counts else 0
+            max_risk = max(risk_counts) if risk_counts else 0
             risk_range = max_risk - min_risk if max_risk > min_risk else 1
             
             for r in routes:
@@ -1534,13 +1484,32 @@ elif page == "🗺️ Navegador Seguro (OSM)":
                     weight = 5
                     opacity = 0.75
                 
-                tooltip_txt = f"Ruta {r['id']+1}: {r['count']} zonas de riesgo" + (" ✅ RECOMENDADA" if is_best else "")
+                # CÁLCULO DE TIEMPO Y DISTANCIA PARA VISUALIZACIÓN
+                distance_km = r.get("distance", 0) / 1000
+                
+                # Calcular tiempo (OSRM)
+                duration_min = int(r.get("duration", 0) / 60)
+                time_str = format_duration(duration_min)
+                
+                # Tooltip y Popup mejorados
+                tooltip_txt = f"Ruta {r['id']+1}: {distance_km:.1f} km • {time_str} • {r['count']} puntos de riesgo" + (" [RECOMENDADA]" if is_best else "")
+                
+                popup_html = f"""
+                <div style='font-family: Arial; font-size: 14px; width: 160px;'>
+                    <b>Ruta {r['id']+1}</b> {'(Recomendada)' if is_best else ''}<br>
+                    <hr style='margin: 5px 0;'>
+                    <b>Tiempo:</b> {time_str}<br>
+                    <b>Distancia:</b> {distance_km:.1f} km<br>
+                    <b>Puntos de Riesgo:</b> {r['count']}
+                </div>
+                """
                 
                 folium.GeoJson(
                     r["geo"], 
                     name=f"Ruta {r['id']+1}",
                     style_function=lambda x, c=color, w=weight, o=opacity: {'color': c, 'weight': w, 'opacity': o},
-                    tooltip=tooltip_txt
+                    tooltip=tooltip_txt,
+                    popup=folium.Popup(popup_html, max_width=200)
                 ).add_to(m)
                 
                 # Pintamos marcadores de riesgo en TODAS las rutas con diferente opacidad
@@ -1553,50 +1522,50 @@ elif page == "🗺️ Navegador Seguro (OSM)":
                         if is_dangerous:
                             # Gradiente de peligrosidad: rojo intenso → naranja
                             if intensity == 2:  # Muy peligroso
-                                color = '#8B0000'  # Rojo oscuro
-                                fill_color = '#FF0000'  # Rojo brillante
+                                color_mk = '#8B0000'  # Rojo oscuro
+                                fill_mk = '#FF0000'  # Rojo brillante
                                 radius = 9
-                                icon = '⚠️'
+                                icon = '!'
                             elif intensity == 1:  # Peligroso moderado
-                                color = '#CC0000'  # Rojo medio
-                                fill_color = '#FF3333'
+                                color_mk = '#CC0000'  # Rojo medio
+                                fill_mk = '#FF3333'
                                 radius = 7
-                                icon = '⚠️'
+                                icon = '!'
                             else:  # Peligroso leve (intensity == 0)
-                                color = '#FF6600'  # Naranja
-                                fill_color = '#FF8C00'
+                                color_mk = '#FF6600'  # Naranja
+                                fill_mk = '#FF8C00'
                                 radius = 6
-                                icon = '⚠️'
+                                icon = '!'
                         else:
                             # Zonas seguras en amarillo suave
-                            color = '#FFD700'  # Dorado
-                            fill_color = '#FFEB3B'
+                            color_mk = '#FFD700'  # Dorado
+                            fill_mk = '#FFEB3B'
                             radius = 5
-                            icon = 'ℹ️'
+                            icon = 'i'
                         
                         # Opacidad según si es la ruta recomendada
-                        opacity = 0.9 if is_best else 0.4
-                        fill_opacity = 0.7 if is_best else 0.3
+                        op_mk = 0.9 if is_best else 0.4
+                        fill_op_mk = 0.7 if is_best else 0.3
                         
                         # Popup enriquecido con más información
                         popup_html = f"""
                         <div style='font-family: Arial; min-width: 200px;'>
-                            <b style='font-size: 14px;'>{icon} {risk['desc'].split()[0]} {risk['desc'].split()[1]}</b><br>
+                            <b style='font-size: 14px;'>{icon} Alerta de Seguridad</b><br>
                             <hr style='margin: 5px 0;'>
                             <b>Crimen:</b> {risk.get('crime_type', 'Desconocido')}<br>
                             <b>Confianza:</b> {risk.get('severity_conf', 0)*100:.1f}%<br>
-                            <b>Ruta:</b> #{r['id']+1} {'✅ Recomendada' if is_best else ''}
+                            <b>Ruta:</b> #{r['id']+1} {'[RECOMENDADA]' if is_best else ''}
                         </div>
                         """
                         
                         folium.CircleMarker(
                             location=[risk['lat'], risk['lon']],
                             radius=radius,
-                            color=color,
+                            color=color_mk,
                             fill=True,
-                            fill_color=fill_color,
-                            fill_opacity=fill_opacity,
-                            opacity=opacity,
+                            fill_color=fill_mk,
+                            fill_opacity=fill_op_mk,
+                            opacity=op_mk,
                             popup=folium.Popup(popup_html, max_width=300),
                             tooltip=f"{icon} {risk.get('crime_type', 'Ver detalles')}"
                         ).add_to(m)
@@ -1608,24 +1577,31 @@ elif page == "🗺️ Navegador Seguro (OSM)":
             # 3. Capa de Calor (Contexto)
             heat_data = [[row['LAT'], row['LON']] for index, row in df_local.sample(min(1000, len(df_local))).iterrows()]
             HeatMap(heat_data, radius=10, blur=15, gradient={0.4: 'yellow', 0.65: 'orange', 1: 'red'}).add_to(m)
+
+
             
             # 4. Agregar leyenda interactiva
             legend_html = f'''
-            <div style="position: fixed; 
-                        bottom: 50px; right: 50px; width: 240px; 
+            <div id="legend_container" style="position: fixed; 
+                        bottom: 50px; right: 50px; width: 230px; 
                         background-color: white; z-index:9999; font-size:14px;
-                        border:2px solid grey; border-radius: 10px; padding: 10px;
-                        box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
-                <h4 style='margin: 0 0 10px 0; text-align: center;'>📊 Leyenda de Riesgo</h4>
-                <p style='margin: 5px 0; font-size: 12px;'><span style='color: red;'>📍 ✖</span> Zonas Peligrosas ({len(dangerous_zones)} detectadas)</p>
-                <hr style='margin: 8px 0;'>
-                <p style='margin: 5px 0;'><span style='color: #FF0000; font-size: 18px;'>⬤</span> Muy Peligroso (>75%)</p>
-                <p style='margin: 5px 0;'><span style='color: #FF3333; font-size: 16px;'>⬤</span> Peligroso (60-75%)</p>
-                <p style='margin: 5px 0;'><span style='color: #FF8C00; font-size: 14px;'>⬤</span> Riesgo Leve (55-60%)</p>
-                <p style='margin: 5px 0;'><span style='color: #FFEB3B; font-size: 12px;'>⬤</span> Zona Segura</p>
-                <hr style='margin: 10px 0;'>
-                <p style='margin: 5px 0; font-size: 12px;'><span style='color: #00cc66; font-weight: bold;'>━━</span> Ruta Recomendada</p>
-                <p style='margin: 5px 0; font-size: 12px;'><span style='color: #FFEB3B;'>━━</span> Alternativas</p>
+                        border:2px solid #ccc; border-radius: 10px;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.3); font-family: Arial, sans-serif; overflow: hidden;">
+                
+                <div onclick="var content = document.getElementById('legend_content'); content.style.display = (content.style.display == 'none' ? 'block' : 'none');" 
+                     style="padding: 8px 10px; background-color: #f8f9fa; cursor: pointer; font-weight: bold; border-bottom: 1px solid #eee; text-align: center; color: #333;">
+                     Leyenda de Riesgo ↕
+                </div>
+                
+                <div id="legend_content" style="padding: 10px; display: block; background-color: rgba(255,255,255,0.95);">
+                    <p style='margin: 5px 0;'><span style='color: #FF0000; font-size: 18px;'>⬤</span> Muy Peligroso (>75%)</p>
+                    <p style='margin: 5px 0;'><span style='color: #FF3333; font-size: 16px;'>⬤</span> Peligroso (60-75%)</p>
+                    <p style='margin: 5px 0;'><span style='color: #FF8C00; font-size: 14px;'>⬤</span> Riesgo Leve (55-60%)</p>
+                    <p style='margin: 5px 0;'><span style='color: #FFEB3B; font-size: 12px;'>⬤</span> Zona Segura</p>
+                    <hr style='margin: 8px 0; border-top: 1px solid #eee;'>
+                    <p style='margin: 5px 0; font-size: 12px;'><span style='color: #00cc66; font-weight: bold;'>━━</span> Ruta Recomendada</p>
+                    <p style='margin: 5px 0; font-size: 12px;'><span style='color: #FFEB3B;'>━━</span> Alternativas</p>
+                </div>
             </div>
             '''
             m.get_root().html.add_child(folium.Element(legend_html))
@@ -1634,32 +1610,21 @@ elif page == "🗺️ Navegador Seguro (OSM)":
 
         m_route = create_route_map(data)
 
-        # Información de rutas analizadas con CÁLCULO DE COSTES
-        st.markdown(f"### 🛣️ Comparativa de Rutas y Costes")
+        # Información de ruta seleccionada
+        st.markdown(f"### Detalles de la Ruta")
         
         best_r = next(r for r in data["routes"] if r["id"] == data["best_idx"])
         distance_km = best_r.get("distance", 0) / 1000
-        duration_min = int(best_r.get("duration", 0) / 60)
+        duration_osrm_min = int(best_r.get("duration", 0) / 60)
         risk_count = best_r["count"]
         
-        # Calcular costes estimados según modo de transporte
+        # Recuperar modo de transporte
         transport_mode = data.get("transport_mode", "Auto")
         
-        if transport_mode == "Auto":
-            # Promedio: $0.40/km (combustible + desgaste)
-            cost_usd = distance_km * 0.40
-            co2_kg = distance_km * 0.12  # 120g CO2/km promedio
-            cost_symbol = "💵"
-        elif transport_mode == "Bicicleta":
-            cost_usd = 0
-            co2_kg = 0
-            cost_symbol = "🚴"
-        else:  # Caminando
-            cost_usd = 0
-            co2_kg = 0
-            cost_symbol = "🚶"
+        # Duración real OSRM (precisa para todos los modos)
+        duration_min = duration_osrm_min
         
-        col1, col2, col3, col4, col5 = st.columns(5)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Rutas Analizadas", len(data["routes"]))
         with col2:
@@ -1667,37 +1632,32 @@ elif page == "🗺️ Navegador Seguro (OSM)":
         with col3:
             st.metric("Distancia", f"{distance_km:.1f} km")
         with col4:
-            st.metric("Tiempo Estimado", f"{duration_min} min")
-        with col5:
-            if cost_usd > 0:
-                st.metric(f"{cost_symbol} Coste Aprox.", f"${cost_usd:.2f}")
-            else:
-                st.metric(f"{cost_symbol} Coste", "Gratis")
+            st.metric("Tiempo Estimado", format_duration(duration_min))
         
-        # Impacto ambiental (si aplica)
-        if co2_kg > 0:
-            st.info(f"🌱 Huella de carbono estimada: {co2_kg:.2f} kg CO₂")
+        # Evaluación de seguridad - PUNTOS IDENTIFICADOS
         
-        # Evaluación de seguridad
-        total_dangerous_zones = len(data.get("dangerous_zones", []))
         if risk_count == 0:
-            st.success("✅ **Ruta Limpia**: La ruta seleccionada evita todas las zonas conflictivas detectadas.")
-        elif risk_count < total_dangerous_zones * 0.3:
-            st.info(f"ℹ️ **Ruta Segura**: Solo atraviesa {risk_count} de {total_dangerous_zones} zonas detectadas como peligrosas.")
-        elif risk_count < total_dangerous_zones * 0.6:
-            st.warning(f"⚠️ **Precaución**: La ruta atraviesa {risk_count} zonas calientes. Mantén alerta.")
+            st.success("Ruta Limpia: La ruta seleccionada evita todos los puntos conflictivos detectados.")
+        elif risk_count <= 2:
+            st.success(f"Ruta Muy Segura: Solo atraviesa {risk_count} punto{'s' if risk_count > 1 else ''} de riesgo identificado. Excelente opción.")
+        elif risk_count <= 5:
+            st.info(f"Ruta Segura: Atraviesa {risk_count} puntos de riesgo. Opción razonable con precauciones normales.")
+        elif risk_count <= 10:
+            st.warning(f"Precaución Moderada: La ruta atraviesa {risk_count} puntos calientes. Mantén alerta, especialmente en horario nocturno.")
         else:
-            st.error(f"🚨 **Alto Riesgo**: Ruta con {risk_count} zonas peligrosas. Considera viajar en otro horario o usar transporte público.")
+            st.error(f"Alto Riesgo: Ruta con {risk_count} puntos peligrosos detectados. Considera viajar en otro horario o elegir otra ruta.")
         
         # Detalles de cada ruta (expandible)
-        with st.expander("📋 Ver detalles de todas las rutas"):
+        with st.expander("Ver detalles de todas las rutas"):
             for r in sorted(data["routes"], key=lambda x: x["count"]):
                 is_selected = (r["id"] == data["best_idx"])
-                emoji = "✅" if is_selected else "⚪"
                 
-                # Calcular métricas
-                duration_min = int(r.get("duration", 0) / 60)
+                # Calcular métricas con tiempo REAL según modo de transporte
+                duration_osrm = int(r.get("duration", 0) / 60)
                 distance_km = r.get("distance", 0) / 1000
+                
+                # Ajustar tiempo según modo de transporte
+                duration_min = duration_osrm
                 
                 # Barra de progreso visual de peligrosidad
                 max_risk = max(route["count"] for route in data["routes"])
@@ -1705,14 +1665,14 @@ elif page == "🗺️ Navegador Seguro (OSM)":
                 
                 col_a, col_b, col_c, col_d = st.columns([3, 2, 2, 2])
                 with col_a:
-                    status = "🏆 RECOMENDADA" if is_selected else ""
-                    st.write(f"{emoji} **Ruta {r['id']+1}** {status}")
+                    status = "RECOMENDADA" if is_selected else ""
+                    st.write(f"Ruta {r['id']+1} {status}")
                 with col_b:
-                    st.write(f"🚨 {r['count']} zonas riesgo")
+                    st.write(f"{r['count']} zonas riesgo")
                 with col_c:
-                    st.write(f"⏱️ {duration_min} min")
+                    st.write(format_duration(duration_min))
                 with col_d:
-                    st.write(f"📏 {distance_km:.1f} km")
+                    st.write(f"{distance_km:.1f} km")
                 
                 # Barra de peligrosidad
                 st.progress(danger_pct / 100, text=f"Peligrosidad: {danger_pct:.0f}%")
@@ -1720,7 +1680,7 @@ elif page == "🗺️ Navegador Seguro (OSM)":
         
         # Opciones de compartir y exportar
         st.markdown("---")
-        st.markdown("### 📤 Compartir y Exportar Ruta")
+        st.markdown("### Compartir y Exportar Ruta")
         
         col_share1, col_share2, col_share3 = st.columns(3)
         
@@ -1741,7 +1701,7 @@ elif page == "🗺️ Navegador Seguro (OSM)":
             
             json_route = json.dumps(route_summary, indent=2, ensure_ascii=False).encode('utf-8')
             st.download_button(
-                label="📥 Descargar Ruta (JSON)",
+                label="Descargar Ruta (JSON)",
                 data=json_route,
                 file_name=f"ruta_segura_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                 mime="application/json"
@@ -1749,22 +1709,22 @@ elif page == "🗺️ Navegador Seguro (OSM)":
         
         with col_share2:
             # Crear texto para compartir
-            share_text = f"""🗺️ RAIA - Ruta Segura Calculada
+            share_text = f"""RAIA - Ruta Segura Calculada
 
-📍 {data.get('origin_name', 'Origen')} ➡️ {data.get('dest_name', 'Destino')}
-📅 {data.get('travel_date', 'N/A')} a las {data.get('travel_hour', 'N/A')}:00
+ {data.get('origin_name', 'Origen')} -> {data.get('dest_name', 'Destino')}
+ {data.get('travel_date', 'N/A')} a las {data.get('travel_hour', 'N/A')}:00
 
-✅ Ruta #{data['best_idx']+1} (Recomendada)
-📏 Distancia: {distance_km:.1f} km
-⏱️ Tiempo: {duration_min} min
-🚨 Zonas de riesgo: {risk_count}
-{f'💵 Coste estimado: ${cost_usd:.2f}' if cost_usd > 0 else '💚 Coste: Gratis'}
+ Ruta #{data['best_idx']+1} (Recomendada)
+ Distancia: {distance_km:.1f} km
+ Tiempo: {duration_min} min
+ Zonas de riesgo: {risk_count}
+ {f'Coste estimado: ${cost_usd:.2f}' if cost_usd > 0 else 'Coste: Gratis'}
 
 Generado por RAIA - Sistema de Rutas Seguras con IA
 """
             
             st.download_button(
-                label="📄 Compartir Resumen (TXT)",
+                label="Compartir Resumen (TXT)",
                 data=share_text.encode('utf-8'),
                 file_name=f"ruta_raia_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                 mime="text/plain"
@@ -1773,22 +1733,22 @@ Generado por RAIA - Sistema de Rutas Seguras con IA
         with col_share3:
             # Generar link para Google Maps (como referencia)
             gmaps_url = f"https://www.google.com/maps/dir/{data['start'][0]},{data['start'][1]}/{data['end'][0]},{data['end'][1]}"
-            st.markdown(f"[🔗 Abrir en Google Maps]({gmaps_url})")
-            st.caption("⚠️ Google Maps no incluye análisis de seguridad")
+            st.markdown(f"[Abrir en Google Maps]({gmaps_url})")
+            st.caption("Google Maps no incluye análisis de seguridad")
 
         st.markdown("---")
         
         # Historial de rutas calculadas
         if st.session_state.get("route_history") and len(st.session_state["route_history"]) > 1:
-            with st.expander(f"📜 Historial de Rutas ({len(st.session_state['route_history'])} calculadas)"):
+            with st.expander(f"Historial de Rutas ({len(st.session_state['route_history'])} calculadas)"):
                 st.markdown("Rutas calculadas recientemente en esta sesión:")
                 
                 for idx, hist_route in enumerate(st.session_state["route_history"]):
-                    st.markdown(f"**{idx+1}. {hist_route.get('origin_name')} → {hist_route.get('dest_name')}**")
-                    st.caption(f"🕐 {hist_route.get('timestamp')} | 🚗 {hist_route.get('transport_mode')}")
+                    st.markdown(f"**{idx+1}. {hist_route.get('origin_name')} -> {hist_route.get('dest_name')}**")
+                    st.caption(f"{hist_route.get('timestamp')} | {hist_route.get('transport_mode')}")
                     st.markdown("---")
                 
-                if st.button("🗑️ Limpiar Historial de Rutas"):
+                if st.button("Limpiar Historial de Rutas"):
                     st.session_state["route_history"] = []
                     st.success("Historial limpiado")
                     st.rerun()
