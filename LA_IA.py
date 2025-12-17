@@ -8,10 +8,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.utils import class_weight
 import joblib
 import os
-
-# --- TENSORFLOW ---
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks
 
@@ -198,8 +197,6 @@ def train_neural_model(X_train, X_test, y_crime_train, y_crime_test, y_severity_
     print("\n--- ENTRENANDO RED NEURONAL MULTI-SALIDA ---")
     
     # Calcular pesos de clase para balancear el entreno (solo para crímenes)
-    from sklearn.utils import class_weight
-    import numpy as np
     
     class_weights = class_weight.compute_class_weight(
         class_weight='balanced',

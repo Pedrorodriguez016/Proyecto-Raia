@@ -257,6 +257,66 @@ def predict_crime(data: CrimeInput, username: str = Depends(authenticate)):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+# -------------------- NUEVOS ENDPOINTS: GEOCODING Y RUTAS (BFF Pattern) --------------------
+from geopy.geocoders import Nominatim
+import requests
+
+@app.get("/geocode")
+def geocode_address(address: str, username: str = Depends(authenticate)):
+    """Geocodifica una dirección restringida a Los Ángeles."""
+    geolocator = Nominatim(user_agent="raia_api_service_v1")
+    try:
+        # Agregar contexto de LA si falta
+        search_query = f"{address}, Los Angeles, California, USA" if "Los Angeles" not in address else address
+        loc = geolocator.geocode(search_query, timeout=10)
+        
+        if loc:
+            lat, lon = loc.latitude, loc.longitude
+            # Validar límites de LA (aprox)
+            if (33.7 <= lat <= 34.35) and (-118.7 <= lon <= -118.0):
+                return {"found": True, "lat": lat, "lon": lon, "address": loc.address}
+            else:
+                return {"found": False, "error": "Ubicación fuera del área metropolitana de Los Ángeles"}
+        return {"found": False, "error": "Dirección no encontrada"}
+    except Exception as e:
+        raise HTTPException(500, f"Error geocoding: {str(e)}")
+
+class RouteRequest(BaseModel):
+    waypoints: list[list[float]] # Lista de [lat, lon]
+    mode: str = "driving" # driving, foot, bike
+
+@app.post("/route")
+def get_osrm_route(data: RouteRequest, username: str = Depends(authenticate)):
+    """Obtiene rutas desde OSRM (proxied via API). Soporta waypoints intermedios."""
+    
+    # Determinar endpoint según modo
+    if data.mode == "Caminando":
+        base_url = "https://routing.openstreetmap.de/routed-foot/route/v1/foot"
+
+    else: # Auto
+        base_url = "http://router.project-osrm.org/route/v1/driving"
+        
+    # Construir string de coordenadas: lon,lat;lon,lat;...
+    try:
+        coords_str = ";".join([f"{p[1]},{p[0]}" for p in data.waypoints])
+    except:
+        raise HTTPException(400, "Formato de waypoints inválido. Use [[lat, lon], ...]")
+
+    url = f"{base_url}/{coords_str}?overview=full&geometries=geojson&alternatives=true"
+    
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            return r.json()
+        elif r.status_code == 400:
+             # OSRM a veces falla si los puntos están muy lejos o son inválidos
+            raise HTTPException(400, "No se pudo calcular ruta entre estos puntos.")
+        else:
+            raise HTTPException(r.status_code, "Error en servicio OSRM externo")
+    except Exception as e:
+        raise HTTPException(500, f"Error de conexión con OSRM: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)

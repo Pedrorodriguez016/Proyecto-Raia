@@ -1,5 +1,221 @@
 [
     {
+        "timestamp": "2025-12-17 18:07:14",
+        "user": "user",
+        "input": {
+            "area": "West Valley",
+            "lat": 34.1748,
+            "lon": -118.5228,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 2,
+            "hour": 12,
+            "victim_age": 30,
+            "victim_sex": "M"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.48687809705734253,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.48687809705734253
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.33993133902549744
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.1089918240904808
+                }
+            ],
+            "severity": "PELIGROSO",
+            "severity_confidence": 0.5087355375289917
+        },
+        "area": "West Valley"
+    },
+    {
+        "timestamp": "2025-12-17 18:06:59",
+        "user": "user",
+        "input": {
+            "area": "77th Street",
+            "lat": 33.9698,
+            "lon": -118.2833,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 2,
+            "hour": 12,
+            "victim_age": 30,
+            "victim_sex": "M"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.6200852990150452,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.6200852990150452
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.3051551282405853
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.05036604031920433
+                }
+            ],
+            "severity": "SEGURO",
+            "severity_confidence": 0.6250338554382324
+        },
+        "area": "77th Street"
+    },
+    {
+        "timestamp": "2025-12-17 18:04:54",
+        "user": "user",
+        "input": {
+            "area": "77th Street",
+            "lat": 33.9698,
+            "lon": -118.2833,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 2,
+            "hour": 12,
+            "victim_age": 30,
+            "victim_sex": "M"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.6200852990150452,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.6200852990150452
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.3051551282405853
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.05036604031920433
+                }
+            ],
+            "severity": "SEGURO",
+            "severity_confidence": 0.6250338554382324
+        },
+        "area": "77th Street"
+    },
+    {
+        "timestamp": "2025-12-17 18:02:38",
+        "user": "user",
+        "input": {
+            "area": "77th Street",
+            "lat": 33.9698,
+            "lon": -118.2833,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 2,
+            "hour": 12,
+            "victim_age": 30,
+            "victim_sex": "M"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.6200852990150452,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.6200852990150452
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.3051551282405853
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.05036604031920433
+                }
+            ],
+            "severity": "SEGURO",
+            "severity_confidence": 0.6250338554382324
+        },
+        "area": "77th Street"
+    },
+    {
+        "timestamp": "2025-12-17 18:00:13",
+        "user": "user",
+        "input": {
+            "area": "77th Street",
+            "lat": 33.9698,
+            "lon": -118.2833,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 2,
+            "hour": 12,
+            "victim_age": 30,
+            "victim_sex": "M"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.6200852990150452,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.6200852990150452
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.3051551282405853
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.05036604031920433
+                }
+            ],
+            "severity": "SEGURO",
+            "severity_confidence": 0.6250338554382324
+        },
+        "area": "77th Street"
+    },
+    {
+        "timestamp": "2025-12-17 17:58:42",
+        "user": "user",
+        "input": {
+            "area": "77th Street",
+            "lat": 33.9698,
+            "lon": -118.2833,
+            "date_year": 2025,
+            "date_month": 12,
+            "day_of_week": 2,
+            "hour": 12,
+            "victim_age": 30,
+            "victim_sex": "M"
+        },
+        "result": {
+            "prediction": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+            "confidence": 0.6200852990150452,
+            "top_3": [
+                {
+                    "crim": "THEFT FROM MOTOR VEHICLE - GRAND ($950.01 AND OVER)",
+                    "probabilitat": 0.6200852990150452
+                },
+                {
+                    "crim": "BURGLARY FROM VEHICLE",
+                    "probabilitat": 0.3051551282405853
+                },
+                {
+                    "crim": "VANDALISM - FELONY ($400 & OVER, ALL CHURCH VANDALISMS)",
+                    "probabilitat": 0.05036604031920433
+                }
+            ],
+            "severity": "SEGURO",
+            "severity_confidence": 0.6250338554382324
+        },
+        "area": "77th Street"
+    },
+    {
         "timestamp": "2025-12-17 11:17:36",
         "user": "user",
         "input": {
