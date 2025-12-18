@@ -1,6 +1,3 @@
-"""Script de gestión de datos de crímenes en LA - BALANCED EDITION.
-"""
-
 from pathlib import Path
 import argparse
 import pandas as pd
@@ -10,20 +7,23 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.utils import class_weight
 import joblib
-import os
+import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks
 
-DATA_PATH = Path("Crime_Data_from_2020_to_Present.csv")
+DATA_PATH = Path(__file__).parent / "Crime_Data_from_2020_to_Present.csv"
 
 def collect_data(path: Path) -> pd.DataFrame:
     print(f"[Collect] Leyendo archivo: {path}")
+    if not path.is_file():
+        print(f"ERROR: No se encontró el archivo en {path}. Por favor, asegúrese de que el archivo CSV exista en la ruta especificada.")
+        return pd.DataFrame()
     try:
         df = pd.read_csv(path)
         print(f"[Collect] Registros cargados: {len(df):,}")
         return df
-    except FileNotFoundError:
-        print(f"ERROR: No se encontró el archivo en {path}")
+    except Exception as e:
+        print(f"ERROR al leer el archivo: {e}")
         return pd.DataFrame()
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -72,10 +72,119 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     print(f"[Clean] Registros válidos finales: {len(df):,}")
     return df
 
+# Helper to save or display figures
+def _save_or_show(output: Path | None, filename: str, show: bool) -> None:
+    # Save figure (if output path provided) and optionally display it
+    if output:
+        output.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output / filename, bbox_inches="tight")
+    if show:
+        plt.show()
+    # Close the figure to free memory
+    plt.close()
 
-# ----------------------------------------------------------
-# CLASIFICACIÓN DE SEVERIDAD
-# ----------------------------------------------------------
+def explore_data(df: pd.DataFrame, output: Path | None = None, show_graphs: bool = True) -> None:
+    # Generate exploratory visualizations and save/display them
+    if df.empty:
+        return
+    print("[Explore] Generando batería completa de gráficos...")
+
+    # 1. Top 15 Tipos de Crimen
+    if "Crm Cd Desc" in df.columns:
+        top_crimes = df["Crm Cd Desc"].value_counts().head(15)
+        plt.figure(figsize=(11, 6))
+        sns.barplot(x=top_crimes.values, y=top_crimes.index, orient="h")
+        plt.title("Top 15 Tipos de Crimen")
+        plt.tight_layout()
+        _save_or_show(output, "01_top_crimes.png", show_graphs)
+
+    # 2. Evolución mensual (Línea temporal)
+    if "MONTH" in df.columns:
+        monthly = df.groupby("MONTH").size().sort_index()
+        plt.figure(figsize=(12, 5))
+        monthly.plot(color="#1f77b4")
+        plt.title("Evolución mensual de crímenes")
+        plt.ylabel("Casos")
+        plt.xticks(rotation=90)
+        plt.tight_layout()
+        _save_or_show(output, "02_evolucion_mensual.png", show_graphs)
+
+    # 3. HEATMAP AÑO VS MES
+    if {"YEAR", "MONTH"}.issubset(df.columns):
+        pivot = df.pivot_table(index="YEAR", columns="MONTH", values="DR_NO", aggfunc="count")
+        plt.figure(figsize=(14, 6))
+        sns.heatmap(pivot.fillna(0), cmap="Blues")
+        plt.title("Heatmap: Intensidad Año vs Mes")
+        plt.tight_layout()
+        _save_or_show(output, "03_heatmap_year_month.png", show_graphs)
+
+    # 4. Top Áreas (Comisarías)
+    if "AREA NAME" in df.columns:
+        area_counts = df["AREA NAME"].value_counts().head(20)
+        plt.figure(figsize=(10, 8))
+        sns.barplot(x=area_counts.values, y=area_counts.index, orient="h")
+        plt.title("Top Áreas con más crímenes")
+        plt.tight_layout()
+        _save_or_show(output, "04_top_areas.png", show_graphs)
+
+    # 5. Distribución por Hora
+    if "TIME OCC" in df.columns:
+        horas = (df["TIME OCC"] // 100).clip(lower=0, upper=23)
+        plt.figure(figsize=(10, 4))
+        sns.countplot(x=horas, color="#ff7f0e")
+        plt.title("Distribución de crímenes por hora")
+        plt.tight_layout()
+        _save_or_show(output, "05_distribution_hour.png", show_graphs)
+
+    # 6. Distribución Edad Víctima
+    if "Vict Age" in df.columns:
+        edades = df["Vict Age"][df["Vict Age"] > 0]
+        plt.figure(figsize=(10, 4))
+        sns.histplot(edades, bins=40, kde=True, color="#2ca02c")
+        plt.title("Distribución de Edad de Víctimas")
+        plt.tight_layout()
+        _save_or_show(output, "06_victim_age.png", show_graphs)
+
+    # 7. Sexo Víctima
+    if "Vict Sex" in df.columns:
+        plt.figure(figsize=(6, 4))
+        sns.countplot(x=df["Vict Sex"].fillna("X"), hue=df["Vict Sex"].fillna("X"), palette="Set2", legend=False)
+        plt.title("Distribución por Sexo")
+        plt.tight_layout()
+        _save_or_show(output, "07_victim_sex.png", show_graphs)
+
+    # 8. Armas usadas
+    if "Weapon Desc" in df.columns:
+        weapons = df["Weapon Desc"].dropna().value_counts().head(15)
+        plt.figure(figsize=(11, 6))
+        sns.barplot(x=weapons.values, y=weapons.index, orient="h", color="#9467bd")
+        plt.title("Top 15 Armas Usadas")
+        plt.tight_layout()
+        _save_or_show(output, "08_top_weapons.png", show_graphs)
+
+    # 9. HEATMAP: ZONA vs SEXO
+    if "AREA NAME" in df.columns and "Vict Sex" in df.columns:
+        df_sex = df[df["Vict Sex"].isin(["M", "F"])].copy()
+        top_areas_list = df_sex["AREA NAME"].value_counts().head(15).index
+        df_filtered = df_sex[df_sex["AREA NAME"].isin(top_areas_list)]
+        ct = pd.crosstab(df_filtered["AREA NAME"], df_filtered["Vict Sex"])
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(ct, annot=True, fmt="d", cmap="Reds", linewidths=.5)
+        plt.title("MAPA DE CALOR: Zonas Peligrosas vs Sexo (Quién y Dónde)")
+        plt.tight_layout()
+        _save_or_show(output, "09_heatmap_zona_sexo.png", show_graphs)
+
+    # 10. Desbalance de Clases
+    if "Crm Cd Desc" in df.columns:
+        top = df["Crm Cd Desc"].value_counts().head(30)
+        plt.figure(figsize=(12, 7))
+        sns.barplot(x=top.values, y=top.index, orient="h", color="#8c564b")
+        plt.xscale("log")
+        plt.title("Top 30 Crímenes (Escala Logarítmica)")
+        plt.tight_layout()
+        _save_or_show(output, "10_class_imbalance.png", show_graphs)
+
+
 def classify_crime_severity(crime_desc):
     """Clasifica un crimen en PELIGROSO o SEGURO según riesgo personal"""
     if pd.isna(crime_desc):
@@ -85,38 +194,17 @@ def classify_crime_severity(crime_desc):
     
     # PELIGROSO: Crímenes violentos o con riesgo personal directo
     DANGEROUS_KEYWORDS = [
-        # Violencia grave
         'HOMICIDE', 'MURDER', 'MANSLAUGHTER',
         'RAPE', 'SODOMY', 'SEXUAL', 'LEWD',
-        'KIDNAPPING', 'ABDUCTION',
-        
-        # Robos con violencia
-        'ROBBERY',  # Robo con violencia/amenaza
-        
-        # Asaltos y agresiones
+        'KIDNAPPING', 'ABDUCTION','ROBBERY',
         'ASSAULT', 'BATTERY', 'AGGRAVATED',
-        'INTIMATE PARTNER',  # Violencia doméstica
-        
-        # Armas
-        'WEAPON', 'BRANDISH', 'SHOTS FIRED', 'DISCHARGE FIREARM',
-        'BOMB', 'EXPLOSIVE',
-        
-        # Amenazas directas
-        'CRIMINAL THREATS', 'THREATENING',
-        
-        # Allanamientos (persona puede estar presente)
-        'BURGLARY', 'BREAKING',
-        
-        # Robos personales
-        'PURSE SNATCHING', 'PICKPOCKET', 'THEFT, PERSON',
-        
-        # Secuestro/contacto forzado
-        'CHILD STEALING', 'STALKING'
+        'INTIMATE PARTNER','WEAPON', 'BRANDISH',
+        'SHOTS FIRED', 'DISCHARGE FIREARM','BOMB',
+        'EXPLOSIVE','CRIMINAL THREATS', 'THREATENING',
+        'BURGLARY', 'BREAKING','PURSE SNATCHING',
+        'PICKPOCKET', 'THEFT, PERSON','CHILD STEALING',
+        'STALKING'
     ]
-    
-    # 🟢 SEGURO: Crímenes contra propiedad sin contacto personal
-    # (Todo lo demás: robos de vehículos, fraudes, vandalismos, hurtos, etc.)
-    # Si NO contiene ninguna palabra peligrosa, es SEGURO
     
     if any(keyword in crime_upper for keyword in DANGEROUS_KEYWORDS):
         return "PELIGROSO"
@@ -124,9 +212,6 @@ def classify_crime_severity(crime_desc):
         return "SEGURO"
 
 
-# ----------------------------------------------------------
-# 🔥 NUEVA VERSIÓN ROBUSTA DE prepare_data() - MULTI-SALIDA
-# ----------------------------------------------------------
 def prepare_data(df: pd.DataFrame):
     print("[Prepare] Seleccionando variables para IA...")
     target_col = "Crm Cd Desc"
@@ -206,8 +291,6 @@ def train_neural_model(X_train, X_test, y_crime_train, y_crime_test, y_severity_
     class_weights_dict = dict(enumerate(class_weights))
     print(f"[Training] Pesos de clase calculados para crímenes")
 
-    # 🔥 ARQUITECTURA MULTI-SALIDA
-    # Input compartido
     inputs = layers.Input(shape=(X_train.shape[1],))
     
     # Capas compartidas (feature extraction)
@@ -293,10 +376,6 @@ def train_neural_model(X_train, X_test, y_crime_train, y_crime_test, y_severity_
 
     return model
 
-
-# ----------------------------------------------------------
-# 🔥 GUARDADO DEL MODELO + ARTEFACTOS (MULTI-SALIDA)
-# ----------------------------------------------------------
 def save_artifacts(model, scaler, label_encoder_crime, label_encoder_severity, feature_cols):
     print("\n[Save] Guardando modelo y artefactos para Streamlit...")
 
@@ -313,14 +392,10 @@ def save_artifacts(model, scaler, label_encoder_crime, label_encoder_severity, f
     print(" - severity_encoder.joblib (niveles de severidad)")
     print(" - feature_cols.joblib")
 
-
-# ----------------------------------------------------------
-# MAIN
-# ----------------------------------------------------------
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--no-graphs", action="store_true")
-    p.add_argument("--sample", type=int, default=None)
+    p.add_argument("--sample", type=int, help="Number of rows to sample from the dataset (optional)")
     args = p.parse_args()
 
     df = collect_data(DATA_PATH)
@@ -329,10 +404,17 @@ def main():
 
     df = clean_data(df)
 
-    # PREPARAR DATOS (ahora retorna más valores)
+    # ------------------------------------------------------------
+    # Exploratory visualisations (optional, controlled by --no-graphs)
+    # ------------------------------------------------------------
+    if not args.no_graphs:
+        # Save plots in a folder called "output/figures" next to the script
+        from pathlib import Path
+        output_path = Path(__file__).parent / "output" / "figures"
+        explore_data(df, output=output_path, show_graphs=True)
+
     X, y_crime, y_severity, le_crime, le_severity, scaler, feature_cols = prepare_data(df)
 
-    # SPLIT (ahora maneja ambas salidas)
     splits = split_data(X, y_crime, y_severity)
     if splits:
         X_train, X_test, y_crime_train, y_crime_test, y_severity_train, y_severity_test = splits
@@ -344,8 +426,7 @@ def main():
             num_crime_classes=len(le_crime.classes_),
             num_severity_classes=len(le_severity.classes_)
         )
-
-        # GUARDAR MODELO + ARTEFACTOS (con ambos encoders)
+        
         save_artifacts(model, scaler, le_crime, le_severity, feature_cols)
 
 
