@@ -545,7 +545,7 @@ elif page == "Asistente IA":
         st.session_state["messages"] = []
         # Mensaje de bienvenida
         welcome_msg = (
-            "¡Hola! Soy tu asistente de análisis criminal conectado a la API del sistema RAIA.\n\n"
+            "¡Hola!\n\n"
             "Puedo ayudarte con:\n"
             "- Análisis temporal de criminalidad\n"
             "- Comparación entre zonas\n"
